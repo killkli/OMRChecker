@@ -68,10 +68,78 @@ class BatchOMRGenerator:
             logger.error(f"Error reading Excel file: {e}")
             raise
 
+    def read_student_data_from_excel(
+        self,
+        excel_path: str,
+        id_column: Optional[str] = None,
+        data_columns: Optional[List[str]] = None,
+        sheet_name: int = 0
+    ) -> List[dict]:
+        """
+        Read student data from Excel including ID and additional columns.
+
+        Args:
+            excel_path: Path to Excel file (.xlsx, .xls, .csv)
+            id_column: Name of column containing IDs (default: first column)
+            data_columns: List of additional column names to read (e.g., ['name', 'class'])
+            sheet_name: Sheet index or name (default: 0 for first sheet)
+
+        Returns:
+            List of dictionaries with student data: [{'id': 'S001', 'name': 'Alice', 'class': '10A'}, ...]
+        """
+        try:
+            # Read Excel file
+            if excel_path.endswith('.csv'):
+                df = pd.read_csv(excel_path)
+            else:
+                df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+            # Get ID column
+            if id_column:
+                if id_column not in df.columns:
+                    raise ValueError(
+                        f"ID column '{id_column}' not found. Available columns: {list(df.columns)}"
+                    )
+            else:
+                # Use first column as ID
+                id_column = df.columns[0]
+
+            # Prepare data columns
+            if data_columns:
+                # Validate data columns exist
+                missing_cols = [col for col in data_columns if col not in df.columns]
+                if missing_cols:
+                    logger.warning(f"Columns not found: {missing_cols}. Available: {list(df.columns)}")
+                    data_columns = [col for col in data_columns if col in df.columns]
+            else:
+                # Use all columns except ID
+                data_columns = [col for col in df.columns if col != id_column]
+
+            # Build student data list
+            student_data = []
+            for idx, row in df.iterrows():
+                if pd.notna(row[id_column]):
+                    student = {'id': str(row[id_column]).strip()}
+                    # Add additional data columns
+                    for col in data_columns:
+                        if pd.notna(row[col]):
+                            student[col] = str(row[col]).strip()
+                        else:
+                            student[col] = ""
+                    student_data.append(student)
+
+            logger.info(f"Read {len(student_data)} student records from {excel_path}")
+            logger.info(f"Columns: id, {', '.join(data_columns)}")
+            return student_data
+
+        except Exception as e:
+            logger.error(f"Error reading Excel file: {e}")
+            raise
+
     def generate_batch(
         self,
-        ids: List[str],
-        output_dir: Path,
+        ids: List[str] = None,
+        output_dir: Path = None,
         num_questions: int = 20,
         question_type: str = "QTYPE_MCQ4",
         num_columns: int = 4,
@@ -80,12 +148,13 @@ class BatchOMRGenerator:
         page_height: int = 2970,
         bubble_size: int = 40,
         custom_texts: Optional[list] = None,
+        student_data: Optional[List[dict]] = None,
     ) -> tuple[int, int]:
         """
-        Generate OMR sheets for a batch of IDs.
+        Generate OMR sheets for a batch of IDs or student data.
 
         Args:
-            ids: List of ID strings
+            ids: List of ID strings (used if student_data is None)
             output_dir: Directory to save generated sheets
             num_questions: Number of questions per sheet
             question_type: Type of questions (QTYPE_MCQ4, QTYPE_MCQ5, etc.)
@@ -94,7 +163,8 @@ class BatchOMRGenerator:
             page_width: Page width in pixels
             page_height: Page height in pixels
             bubble_size: Bubble size in pixels
-            custom_texts: Optional list of custom text fields
+            custom_texts: Optional list of custom text fields (shared across all sheets)
+            student_data: Optional list of student dictionaries with per-student data
 
         Returns:
             Tuple of (successful_count, failed_count)
@@ -111,11 +181,37 @@ class BatchOMRGenerator:
         success_count = 0
         failed_count = 0
 
-        logger.info(f"Starting batch generation for {len(ids)} IDs...")
+        # Use student_data if provided, otherwise use simple IDs
+        if student_data:
+            data_list = student_data
+            logger.info(f"Starting batch generation for {len(data_list)} students with data...")
+        else:
+            data_list = [{'id': id_str} for id_str in ids]
+            logger.info(f"Starting batch generation for {len(data_list)} IDs...")
 
-        for idx, student_id in enumerate(ids, 1):
+        for idx, student in enumerate(data_list, 1):
             try:
-                logger.info(f"[{idx}/{len(ids)}] Generating sheet for ID: {student_id}")
+                student_id = student['id']
+                logger.info(f"[{idx}/{len(data_list)}] Generating sheet for ID: {student_id}")
+
+                # Build per-student custom texts by merging shared custom_texts with student data
+                student_custom_texts = []
+                if custom_texts:
+                    student_custom_texts.extend(custom_texts)
+
+                # Add student-specific data as text fields
+                if len(student) > 1:  # Has data beyond just ID
+                    y_offset = 200  # Start below header
+                    for key, value in student.items():
+                        if key != 'id' and value:  # Skip ID and empty values
+                            student_custom_texts.append({
+                                "text": f"{key}: {value}",
+                                "x": 100,
+                                "y": y_offset,
+                                "font_size": 0.8,
+                                "bold": False,
+                            })
+                            y_offset += 40
 
                 # Generate sheet with QR code
                 sheet_temp_path, template_temp_path, msg = self.generator.generate_sheet(
@@ -128,7 +224,7 @@ class BatchOMRGenerator:
                     bubble_size=bubble_size,
                     include_qr=True,
                     qr_content=student_id,
-                    custom_texts=custom_texts,
+                    custom_texts=student_custom_texts if student_custom_texts else None,
                 )
 
                 if sheet_temp_path is None or template_temp_path is None:

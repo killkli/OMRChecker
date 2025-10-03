@@ -1,6 +1,6 @@
-student_id
-S001
-S002
-S003
-S004
-S005
+student_id,name,class,section
+S001,Alice Wang,Grade 10,A
+S002,Bob Chen,Grade 10,A
+S003,Carol Li,Grade 10,B
+S004,David Zhang,Grade 10,B
+S005,Emma Liu,Grade 10,C

@@ -1682,9 +1682,16 @@ def create_gradio_interface():
                         )
 
                         batch_column_name = gr.Textbox(
-                            label="Column Name (optional)",
+                            label="ID Column Name (optional)",
                             placeholder="e.g., student_id (leave empty for first column)",
                             value="",
+                        )
+
+                        batch_data_columns = gr.Textbox(
+                            label="Student Data Columns (optional)",
+                            placeholder="e.g., name,class,section (comma-separated, leave empty to use all columns)",
+                            value="",
+                            info="Additional columns to print on each sheet (e.g., student name, class)",
                         )
 
                         batch_sheet_name = gr.Textbox(
@@ -1803,6 +1810,7 @@ def create_gradio_interface():
                 def batch_generate_wrapper(
                     excel_file,
                     column_name,
+                    data_columns_str,
                     sheet_name,
                     num_q,
                     q_type,
@@ -1826,20 +1834,47 @@ def create_gradio_interface():
                         except ValueError:
                             sheet_idx = sheet_name if sheet_name else 0
 
-                        # Read IDs from Excel/CSV
-                        status_msg = "📖 Reading IDs from file...\n"
-                        ids = batch_generator.read_ids_from_excel(
-                            excel_file,
-                            column_name=column_name if column_name else None,
-                            sheet_name=sheet_idx,
-                        )
+                        # Parse data columns
+                        data_columns = None
+                        if data_columns_str and data_columns_str.strip():
+                            data_columns = [col.strip() for col in data_columns_str.split(',') if col.strip()]
 
-                        if not ids:
-                            return "❌ No IDs found in the file", None
+                        # Read student data from Excel/CSV
+                        status_msg = "📖 Reading student data from file...\n"
 
-                        status_msg += f"✓ Found {len(ids)} IDs\n"
-                        status_msg += f"Sample IDs: {', '.join(ids[:5])}\n\n"
-                        status_msg += "🔨 Generating sheets...\n"
+                        # Check if we need to read full student data or just IDs
+                        if data_columns or not column_name:
+                            # Read full student data
+                            student_data = batch_generator.read_student_data_from_excel(
+                                excel_file,
+                                id_column=column_name if column_name else None,
+                                data_columns=data_columns,
+                                sheet_name=sheet_idx,
+                            )
+
+                            if not student_data:
+                                return "❌ No student data found in the file", None
+
+                            status_msg += f"✓ Found {len(student_data)} students\n"
+                            status_msg += f"Sample: {student_data[0]}\n"
+                            if data_columns:
+                                status_msg += f"Data columns: {', '.join(data_columns)}\n"
+                            status_msg += "\n🔨 Generating sheets with student data...\n"
+                        else:
+                            # Read only IDs
+                            ids = batch_generator.read_ids_from_excel(
+                                excel_file,
+                                column_name=column_name,
+                                sheet_name=sheet_idx,
+                            )
+
+                            if not ids:
+                                return "❌ No IDs found in the file", None
+
+                            student_data = None
+                            status_msg += f"✓ Found {len(ids)} IDs\n"
+                            status_msg += f"Sample IDs: {', '.join(ids[:5])}\n\n"
+                            status_msg += "🔨 Generating sheets...\n"
 
                         # Create temporary output directory
                         temp_output = tempfile.mkdtemp(prefix="batch_omr_")
@@ -1877,7 +1912,8 @@ def create_gradio_interface():
 
                         # Generate batch
                         success, failed = batch_generator.generate_batch(
-                            ids=ids,
+                            ids=ids if student_data is None else None,
+                            student_data=student_data,
                             output_dir=Path(temp_output),
                             num_questions=int(num_q),
                             question_type=q_type,
@@ -1924,6 +1960,7 @@ def create_gradio_interface():
                     inputs=[
                         batch_file_input,
                         batch_column_name,
+                        batch_data_columns,
                         batch_sheet_name,
                         batch_num_questions,
                         batch_question_type,
