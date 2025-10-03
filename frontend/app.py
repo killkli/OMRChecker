@@ -752,23 +752,31 @@ class OMRSheetGenerator:
                 pil_img = Image.fromarray(img)
                 draw = ImageDraw.Draw(pil_img)
 
-                # Try to load Chinese font, fallback to default
+                # Try to load Chinese font from project directory, fallback to system fonts
                 try:
-                    # Try different Chinese fonts in order of preference
+                    # Get project root directory
+                    project_root = Path(__file__).parent.parent
+                    project_font = project_root / "fonts" / "TW-Kai.ttf"
+
+                    # Try fonts in order of preference
                     font_paths = [
+                        str(project_font),  # Project bundled font (TW Kai - 台灣標楷體)
                         "/Users/johnchen/Library/Fonts/edukai-4.0.ttf",  # 標楷體
                         "/System/Library/Fonts/Supplemental/Songti.ttc",  # 宋體
                         "/System/Library/Fonts/STHeiti Medium.ttc",  # 黑體
+                        "/System/Library/Fonts/Supplemental/Arial.ttf",  # Arial (fallback)
                     ]
                     font_path = None
                     for path in font_paths:
                         if os.path.exists(path):
                             font_path = path
+                            logger.info(f"Using font: {path}")
                             break
 
                     if not font_path:
-                        font_path = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
-                except:
+                        logger.warning("No suitable font found, using default")
+                except Exception as e:
+                    logger.warning(f"Font loading error: {e}")
                     font_path = None
 
                 for idx, text_field in enumerate(custom_texts):
