@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+test_*.py
+debug_*.py
+visualize_*.py
+*_test.py
+
+# Test outputs
+test_*/
+outputs/*
+inputs/*
+!inputs/.gitkeep
+!outputs/.gitkeep
+
+# Temporary files
+*.log
+*.tmp
+.cache/
+
+# CI/CD
+.pre-commit-config.yaml
+
+# Large files (download separately)
+fonts/*.ttf
+fonts/*.ttc
+fonts/*.otf
+!fonts/README.md
