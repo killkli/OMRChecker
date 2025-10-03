@@ -15,7 +15,6 @@ import shutil
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from frontend.app import OMRSheetGenerator
 from src.logger import logger
 
 
@@ -23,6 +22,8 @@ class BatchOMRGenerator:
     """Generate multiple OMR sheets from an Excel ID list."""
 
     def __init__(self):
+        # Lazy import to avoid circular dependency
+        from frontend.app import OMRSheetGenerator
         self.generator = OMRSheetGenerator()
 
     def read_ids_from_excel(
