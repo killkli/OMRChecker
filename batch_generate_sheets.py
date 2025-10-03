@@ -201,17 +201,23 @@ class BatchOMRGenerator:
 
                 # Add student-specific data as text fields
                 if len(student) > 1:  # Has data beyond just ID
-                    y_offset = 200  # Start below header
+                    # Calculate safe starting position below header and markers
+                    marker_size = int(page_width * 0.1) if include_markers else 0
+                    safe_margin_left = marker_size + 50 if include_markers else 50
+                    # Start below shared header (assume 3 lines max @ 50px spacing)
+                    header_end_y = (marker_size + 60) + (len(custom_texts) * 50) if custom_texts else (marker_size + 60)
+                    y_offset = header_end_y + 40  # Extra spacing after header
+
                     for key, value in student.items():
                         if key != 'id' and value:  # Skip ID and empty values
                             student_custom_texts.append({
                                 "text": f"{key}: {value}",
-                                "x": 100,
+                                "x": safe_margin_left,
                                 "y": y_offset,
-                                "font_size": 0.8,
+                                "font_size": 1.0,  # Larger font
                                 "bold": False,
                             })
-                            y_offset += 40
+                            y_offset += 45  # More spacing between lines
 
                 # Generate sheet with QR code
                 sheet_temp_path, template_temp_path, msg = self.generator.generate_sheet(

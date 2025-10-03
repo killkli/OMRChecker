@@ -617,6 +617,7 @@ class OMRSheetGenerator:
         try:
             import qrcode  # For QR generation
             from qrcode.image.pil import PilImage
+            from PIL import Image, ImageDraw, ImageFont
 
             # Create blank white image
             img = np.ones((page_height, page_width, 3), dtype=np.uint8) * 255
@@ -745,26 +746,61 @@ class OMRSheetGenerator:
                 "preProcessors": [],
             }
 
-            # Draw custom text fields if provided
+            # Draw custom text fields using PIL (for Chinese support)
             if custom_texts:
+                # Convert to PIL Image for text rendering
+                pil_img = Image.fromarray(img)
+                draw = ImageDraw.Draw(pil_img)
+
+                # Try to load Chinese font, fallback to default
+                try:
+                    # Try different Chinese fonts in order of preference
+                    font_paths = [
+                        "/Users/johnchen/Library/Fonts/edukai-4.0.ttf",  # 標楷體
+                        "/System/Library/Fonts/Supplemental/Songti.ttc",  # 宋體
+                        "/System/Library/Fonts/STHeiti Medium.ttc",  # 黑體
+                    ]
+                    font_path = None
+                    for path in font_paths:
+                        if os.path.exists(path):
+                            font_path = path
+                            break
+
+                    if not font_path:
+                        font_path = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
+                except:
+                    font_path = None
+
                 for idx, text_field in enumerate(custom_texts):
                     text = text_field.get("text", "")
                     x = text_field.get("x", 100)
                     y = text_field.get("y", 50)
-                    font_size = text_field.get("font_size", 1.0)
+                    font_size_scale = text_field.get("font_size", 1.0)
                     bold = text_field.get("bold", False)
 
-                    # Draw text on image
-                    thickness = 2 if bold else 1
-                    cv2.putText(
-                        img,
-                        text,
-                        (x, y),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        font_size,
-                        (0, 0, 0),
-                        thickness,
-                    )
+                    # Calculate actual font size in pixels (larger for better readability)
+                    actual_font_size = int(30 * font_size_scale)  # Base size 30px
+
+                    # Load font
+                    try:
+                        if font_path:
+                            font = ImageFont.truetype(font_path, actual_font_size)
+                        else:
+                            font = ImageFont.load_default()
+                    except:
+                        font = ImageFont.load_default()
+
+                    # Draw text with PIL (supports Chinese)
+                    draw.text((x, y), text, font=font, fill=(0, 0, 0))
+
+                    # If bold, draw again with slight offset for thickness
+                    if bold:
+                        draw.text((x+1, y), text, font=font, fill=(0, 0, 0))
+                        draw.text((x, y+1), text, font=font, fill=(0, 0, 0))
+                        draw.text((x+1, y+1), text, font=font, fill=(0, 0, 0))
+
+                # Convert back to numpy array
+                img = np.array(pil_img)
 
             current_y = header_height
 
@@ -1586,32 +1622,41 @@ def create_gradio_interface():
                     page_w = int(pw)
                     page_h = int(ph)
 
-                    # Add custom text lines if provided
-                    y_start = 80  # Starting Y position for header text
-                    line_spacing = 60  # Spacing between lines
+                    # Calculate safe text positioning (avoid markers)
+                    # Markers are at 10% of page width, so start text after marker + margin
+                    marker_size = int(page_w * 0.1) if inc_mark else 0
+                    safe_margin_left = marker_size + 50 if inc_mark else 50
+                    safe_y_start = marker_size + 60 if inc_mark else 50  # Start below marker
+
+                    # Add custom text lines if provided (center-aligned)
+                    line_spacing = 50  # Spacing between lines
 
                     if text1 and text1.strip():
+                        # Approximate character width (works for both English and Chinese)
+                        text_width = len(text1) * 18  # Slightly larger for Chinese chars
                         custom_texts.append({
                             "text": text1,
-                            "x": page_w // 2 - len(text1) * 15,  # Center text approximately
-                            "y": y_start,
-                            "font_size": 1.2,
+                            "x": max(safe_margin_left, page_w // 2 - text_width // 2),
+                            "y": safe_y_start,
+                            "font_size": 1.5,  # Larger for header
                             "bold": True,
                         })
                     if text2 and text2.strip():
+                        text_width = len(text2) * 15
                         custom_texts.append({
                             "text": text2,
-                            "x": page_w // 2 - len(text2) * 12,
-                            "y": y_start + line_spacing,
-                            "font_size": 0.9,
+                            "x": max(safe_margin_left, page_w // 2 - text_width // 2),
+                            "y": safe_y_start + line_spacing,
+                            "font_size": 1.0,
                             "bold": False,
                         })
                     if text3 and text3.strip():
+                        text_width = len(text3) * 15
                         custom_texts.append({
                             "text": text3,
-                            "x": page_w // 2 - len(text3) * 12,
-                            "y": y_start + line_spacing * 2,
-                            "font_size": 0.9,
+                            "x": max(safe_margin_left, page_w // 2 - text_width // 2),
+                            "y": safe_y_start + line_spacing * 2,
+                            "font_size": 1.0,
                             "bold": False,
                         })
 
@@ -1879,34 +1924,41 @@ def create_gradio_interface():
                         # Create temporary output directory
                         temp_output = tempfile.mkdtemp(prefix="batch_omr_")
 
-                        # Build custom texts list
+                        # Build custom texts list with safe positioning
                         custom_texts = []
                         page_w = int(pw)
-                        y_start = 80
-                        line_spacing = 60
+
+                        # Calculate safe positioning
+                        marker_size = int(page_w * 0.1) if inc_mark else 0
+                        safe_margin_left = marker_size + 50 if inc_mark else 50
+                        safe_y_start = marker_size + 60 if inc_mark else 50
+                        line_spacing = 50
 
                         if text1 and text1.strip():
+                            text_width = len(text1) * 18
                             custom_texts.append({
                                 "text": text1,
-                                "x": page_w // 2 - len(text1) * 15,
-                                "y": y_start,
-                                "font_size": 1.2,
+                                "x": max(safe_margin_left, page_w // 2 - text_width // 2),
+                                "y": safe_y_start,
+                                "font_size": 1.5,
                                 "bold": True,
                             })
                         if text2 and text2.strip():
+                            text_width = len(text2) * 15
                             custom_texts.append({
                                 "text": text2,
-                                "x": page_w // 2 - len(text2) * 12,
-                                "y": y_start + line_spacing,
-                                "font_size": 0.9,
+                                "x": max(safe_margin_left, page_w // 2 - text_width // 2),
+                                "y": safe_y_start + line_spacing,
+                                "font_size": 1.0,
                                 "bold": False,
                             })
                         if text3 and text3.strip():
+                            text_width = len(text3) * 15
                             custom_texts.append({
                                 "text": text3,
-                                "x": page_w // 2 - len(text3) * 12,
-                                "y": y_start + line_spacing * 2,
-                                "font_size": 0.9,
+                                "x": max(safe_margin_left, page_w // 2 - text_width // 2),
+                                "y": safe_y_start + line_spacing * 2,
+                                "font_size": 1.0,
                                 "bold": False,
                             })
 
