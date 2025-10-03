@@ -29,7 +29,10 @@ class InteractionUtils:
         if origin is None:
             logger.info(f"'{name}' - NoneType image to show!")
             if pause:
-                cv2.destroyAllWindows()
+                try:
+                    cv2.destroyAllWindows()
+                except:
+                    pass
             return
         if resize:
             if not config:
@@ -38,46 +41,52 @@ class InteractionUtils:
         else:
             img = origin
 
-        if not is_window_available(name):
-            cv2.namedWindow(name)
+        # Try to display window, but gracefully handle headless environments
+        try:
+            if not is_window_available(name):
+                cv2.namedWindow(name)
 
-        cv2.imshow(name, img)
+            cv2.imshow(name, img)
 
-        if reset_pos:
-            image_metrics.window_x = reset_pos[0]
-            image_metrics.window_y = reset_pos[1]
+            if reset_pos:
+                image_metrics.window_x = reset_pos[0]
+                image_metrics.window_y = reset_pos[1]
 
-        cv2.moveWindow(
-            name,
-            image_metrics.window_x,
-            image_metrics.window_y,
-        )
-
-        h, w = img.shape[:2]
-
-        # Set next window position
-        margin = 25
-        w += margin
-        h += margin
-
-        w, h = w // 2, h // 2
-        if image_metrics.window_x + w > image_metrics.window_width:
-            image_metrics.window_x = 0
-            if image_metrics.window_y + h > image_metrics.window_height:
-                image_metrics.window_y = 0
-            else:
-                image_metrics.window_y += h
-        else:
-            image_metrics.window_x += w
-
-        if pause:
-            logger.info(
-                f"Showing '{name}'\n\t Press Q on image to continue. Press Ctrl + C in terminal to exit"
+            cv2.moveWindow(
+                name,
+                image_metrics.window_x,
+                image_metrics.window_y,
             )
 
-            wait_q()
-            InteractionUtils.image_metrics.window_x = 0
-            InteractionUtils.image_metrics.window_y = 0
+            h, w = img.shape[:2]
+
+            # Set next window position
+            margin = 25
+            w += margin
+            h += margin
+
+            w, h = w // 2, h // 2
+            if image_metrics.window_x + w > image_metrics.window_width:
+                image_metrics.window_x = 0
+                if image_metrics.window_y + h > image_metrics.window_height:
+                    image_metrics.window_y = 0
+                else:
+                    image_metrics.window_y += h
+            else:
+                image_metrics.window_x += w
+
+            if pause:
+                logger.info(
+                    f"Showing '{name}'\n\t Press Q on image to continue. Press Ctrl + C in terminal to exit"
+                )
+
+                wait_q()
+                InteractionUtils.image_metrics.window_x = 0
+                InteractionUtils.image_metrics.window_y = 0
+        except Exception as e:
+            # Headless environment or GUI not available
+            logger.warning(f"Cannot display window '{name}' (headless environment): {e}")
+            # Continue without displaying - this is expected in web/server environments
 
 
 @dataclass
