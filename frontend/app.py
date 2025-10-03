@@ -1943,7 +1943,9 @@ def create_gradio_interface():
                                     arcname = os.path.relpath(file_path, temp_output)
                                     zipf.write(file_path, arcname)
 
-                        status_msg += f"✓ ZIP archive created: {len(ids)} sheets\n"
+                        # Determine total count based on what data we used
+                        total_count = len(student_data) if student_data else len(ids)
+                        status_msg += f"✓ ZIP archive created: {total_count} sheets\n"
                         status_msg += f"\n🎉 Batch generation complete!\n"
                         status_msg += f"Download the ZIP file below."
 
