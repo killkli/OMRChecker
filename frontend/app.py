@@ -1726,6 +1726,25 @@ def create_gradio_interface():
                                 value=True,
                             )
 
+                        # Custom Text Fields for Batch
+                        with gr.Group():
+                            gr.Markdown("#### Custom Text (Optional)")
+                            batch_custom_text1 = gr.Textbox(
+                                label="Header Text Line 1",
+                                placeholder="e.g., Final Exam - Mathematics",
+                                value="",
+                            )
+                            batch_custom_text2 = gr.Textbox(
+                                label="Header Text Line 2",
+                                placeholder="e.g., Class: _____ Name: _____",
+                                value="",
+                            )
+                            batch_custom_text3 = gr.Textbox(
+                                label="Header Text Line 3",
+                                placeholder="e.g., Date: _____ Score: _____",
+                                value="",
+                            )
+
                         with gr.Accordion("Advanced Settings", open=False):
                             with gr.Row():
                                 batch_page_width = gr.Number(
@@ -1792,6 +1811,9 @@ def create_gradio_interface():
                     pw,
                     ph,
                     bs,
+                    text1,
+                    text2,
+                    text3,
                 ):
                     """Wrapper function for batch generation in Gradio."""
                     try:
@@ -1822,6 +1844,37 @@ def create_gradio_interface():
                         # Create temporary output directory
                         temp_output = tempfile.mkdtemp(prefix="batch_omr_")
 
+                        # Build custom texts list
+                        custom_texts = []
+                        page_w = int(pw)
+                        y_start = 80
+                        line_spacing = 60
+
+                        if text1 and text1.strip():
+                            custom_texts.append({
+                                "text": text1,
+                                "x": page_w // 2 - len(text1) * 15,
+                                "y": y_start,
+                                "font_size": 1.2,
+                                "bold": True,
+                            })
+                        if text2 and text2.strip():
+                            custom_texts.append({
+                                "text": text2,
+                                "x": page_w // 2 - len(text2) * 12,
+                                "y": y_start + line_spacing,
+                                "font_size": 0.9,
+                                "bold": False,
+                            })
+                        if text3 and text3.strip():
+                            custom_texts.append({
+                                "text": text3,
+                                "x": page_w // 2 - len(text3) * 12,
+                                "y": y_start + line_spacing * 2,
+                                "font_size": 0.9,
+                                "bold": False,
+                            })
+
                         # Generate batch
                         success, failed = batch_generator.generate_batch(
                             ids=ids,
@@ -1830,9 +1883,10 @@ def create_gradio_interface():
                             question_type=q_type,
                             num_columns=int(num_cols),
                             include_markers=inc_mark,
-                            page_width=int(pw),
+                            page_width=page_w,
                             page_height=int(ph),
                             bubble_size=int(bs),
+                            custom_texts=custom_texts if custom_texts else None,
                         )
 
                         status_msg += f"\n{'='*50}\n"
@@ -1878,6 +1932,9 @@ def create_gradio_interface():
                         batch_page_width,
                         batch_page_height,
                         batch_bubble_size,
+                        batch_custom_text1,
+                        batch_custom_text2,
+                        batch_custom_text3,
                     ],
                     outputs=[
                         batch_status,

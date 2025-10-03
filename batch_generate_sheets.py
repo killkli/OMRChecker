@@ -79,6 +79,7 @@ class BatchOMRGenerator:
         page_width: int = 2100,
         page_height: int = 2970,
         bubble_size: int = 40,
+        custom_texts: Optional[list] = None,
     ) -> tuple[int, int]:
         """
         Generate OMR sheets for a batch of IDs.
@@ -93,6 +94,7 @@ class BatchOMRGenerator:
             page_width: Page width in pixels
             page_height: Page height in pixels
             bubble_size: Bubble size in pixels
+            custom_texts: Optional list of custom text fields
 
         Returns:
             Tuple of (successful_count, failed_count)
@@ -126,6 +128,7 @@ class BatchOMRGenerator:
                     bubble_size=bubble_size,
                     include_qr=True,
                     qr_content=student_id,
+                    custom_texts=custom_texts,
                 )
 
                 if sheet_temp_path is None or template_temp_path is None:
