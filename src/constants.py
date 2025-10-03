@@ -39,6 +39,10 @@ FIELD_TYPES = {
     },
     #
     # You can create and append custom field types here-
+    "QTYPE_CUSTOM": {
+        "bubbleValues": [""],
+        "direction": "horizontal",
+    },
     #
 }
 

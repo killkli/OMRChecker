@@ -194,7 +194,7 @@ TEMPLATE_SCHEMA = {
                         "labelsGap",
                         "fieldLabels",
                     ],
-                    "oneOf": [
+                    "anyOf": [
                         {"required": ["fieldType"]},
                         {"required": ["bubbleValues", "direction"]},
                     ],

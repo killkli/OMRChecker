@@ -241,24 +241,30 @@ class FieldBlock:
                 "emptyValue",
             ],
         )
+        self.bubble_values = bubble_values or []
+        self.field_labels = field_labels
         self.parsed_field_labels = parse_fields(
             f"Field Block Labels: {self.name}", field_labels
         )
         self.origin = origin
         self.bubble_dimensions = bubble_dimensions
+        self.field_type = field_type
+        self.bubbles_gap = bubbles_gap
+        self.direction = direction
+        self.labels_gap = labels_gap
         self.calculate_block_dimensions(
-            bubble_dimensions,
-            bubble_values,
-            bubbles_gap,
-            direction,
-            labels_gap,
+            self.bubble_dimensions,
+            self.bubble_values,
+            self.bubbles_gap,
+            self.direction,
+            self.labels_gap,
         )
         self.generate_bubble_grid(
-            bubble_values,
-            bubbles_gap,
-            direction,
-            field_type,
-            labels_gap,
+            self.bubble_values,
+            self.bubbles_gap,
+            self.direction,
+            self.field_type,
+            self.labels_gap,
         )
 
     def calculate_block_dimensions(
@@ -269,19 +275,16 @@ class FieldBlock:
         direction,
         labels_gap,
     ):
-        _h, _v = (1, 0) if (direction == "vertical") else (0, 1)
-
-        values_dimension = int(
-            bubbles_gap * (len(bubble_values) - 1) + bubble_dimensions[_h]
-        )
-        fields_dimension = int(
-            labels_gap * (len(self.parsed_field_labels) - 1) + bubble_dimensions[_v]
-        )
-        self.dimensions = (
-            [fields_dimension, values_dimension]
-            if (direction == "vertical")
-            else [values_dimension, fields_dimension]
-        )
+        if direction == "vertical":
+            # Vertical: bubble_values (0-9) along y (height), field_labels (roll1, roll2) along x (width)
+            values_dimension = bubbles_gap * (len(bubble_values) - 1) + bubble_dimensions[1]  # height
+            fields_dimension = labels_gap * (len(self.parsed_field_labels) - 1) + bubble_dimensions[0]  # width
+            self.dimensions = [int(fields_dimension), int(values_dimension)]
+        else:
+            # Horizontal: bubble_values along x (width), field_labels along y (height)
+            values_dimension = bubbles_gap * (len(bubble_values) - 1) + bubble_dimensions[0]  # width
+            fields_dimension = labels_gap * (len(self.parsed_field_labels) - 1) + bubble_dimensions[1]  # height
+            self.dimensions = [int(values_dimension), int(fields_dimension)]
 
     def generate_bubble_grid(
         self,
@@ -291,9 +294,7 @@ class FieldBlock:
         field_type,
         labels_gap,
     ):
-        _h, _v = (1, 0) if (direction == "vertical") else (0, 1)
         self.traverse_bubbles = []
-        # Generate the bubble grid
         lead_point = [float(self.origin[0]), float(self.origin[1])]
         for field_label in self.parsed_field_labels:
             bubble_point = lead_point.copy()
@@ -302,9 +303,17 @@ class FieldBlock:
                 field_bubbles.append(
                     Bubble(bubble_point.copy(), field_label, field_type, bubble_value)
                 )
-                bubble_point[_h] += bubbles_gap
+                # Increment for next bubble_value in this field_label
+                if direction == "vertical":
+                    bubble_point[1] += bubbles_gap  # y-increment for vertical (0-9 below each other)
+                else:
+                    bubble_point[0] += bubbles_gap  # x-increment for horizontal (A/B/C/D side by side)
             self.traverse_bubbles.append(field_bubbles)
-            lead_point[_v] += labels_gap
+            # Move lead_point for next field_label (next roll digit or question)
+            if direction == "vertical":
+                lead_point[0] += labels_gap  # x-increment for next digit (roll1 to roll2)
+            else:
+                lead_point[1] += labels_gap  # y-increment for next question
 
 
 class Bubble:

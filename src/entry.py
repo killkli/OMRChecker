@@ -253,13 +253,14 @@ def process_files(
         # uniquify
         file_id = str(file_name)
         save_dir = outputs_namespace.paths.save_marked_dir
+        raw_image = in_omr  # Keep raw for QR
         (
             response_dict,
             final_marked,
             multi_marked,
             _,
         ) = template.image_instance_ops.read_omr_response(
-            template, image=in_omr, name=file_id, save_dir=save_dir
+            template, image=in_omr, raw_image=raw_image, name=file_id, save_dir=save_dir
         )
 
         # TODO: move inner try catch here

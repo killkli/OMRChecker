@@ -131,7 +131,28 @@ class CropOnMarkers(ImagePreprocessor):
         # analysis data
         self.threshold_circles.append(sum_t / 4)
 
-        image = ImageUtils.four_point_transform(image, np.array(centres))
+        # Compute homography for point transformation (before warping)
+        detected_rect = ImageUtils.order_points(np.array(centres))
+        # Compute dimensions
+        width_a = np.sqrt(((detected_rect[2][0] - detected_rect[3][0]) ** 2) + ((detected_rect[2][1] - detected_rect[3][1]) ** 2))
+        width_b = np.sqrt(((detected_rect[1][0] - detected_rect[0][0]) ** 2) + ((detected_rect[1][1] - detected_rect[0][1]) ** 2))
+        max_width = max(int(width_a), int(width_b))
+        height_a = np.sqrt(((detected_rect[1][0] - detected_rect[2][0]) ** 2) + ((detected_rect[1][1] - detected_rect[2][1]) ** 2))
+        height_b = np.sqrt(((detected_rect[0][0] - detected_rect[3][0]) ** 2) + ((detected_rect[0][1] - detected_rect[3][1]) ** 2))
+        max_height = max(int(height_a), int(height_b))
+        dst = np.array(
+            [
+                [0, 0],
+                [max_width - 1, 0],
+                [max_width - 1, max_height - 1],
+                [0, max_height - 1],
+            ],
+            dtype="float32",
+        )
+        homography = cv2.getPerspectiveTransform(detected_rect, dst)
+
+        # Warp image
+        image = cv2.warpPerspective(image, homography, (max_width, max_height))
         # appendSaveImg(1,image_eroded_sub)
         # appendSaveImg(1,image_norm)
 
@@ -159,7 +180,26 @@ class CropOnMarkers(ImagePreprocessor):
             )
         # iterations : Tuned to 2.
         # image_eroded_sub = image_norm - cv2.erode(image_norm, kernel=np.ones((5,5)),iterations=2)
-        return image
+        # Calculate crop offset: bounding box of marker centers before warping
+        min_x = min(centres, key=lambda p: p[0])[0]
+        min_y = min(centres, key=lambda p: p[1])[1]
+        crop_offset = (min_x, min_y)
+        logger.info(f"Crop offset calculated: {crop_offset}")
+
+        # Calculate homography (assume marker positions in original template)
+        # Expected marker corners for homography (e.g., 5% from edges)
+        h, w = image.shape[:2]
+        expected_corners = np.float32([
+            [0.05 * w, 0.05 * h],    # top-left
+            [0.95 * w, 0.05 * h],    # top-right
+            [0.05 * w, 0.95 * h],    # bottom-left
+            [0.95 * w, 0.95 * h],    # bottom-right
+        ])
+        # homography = cv2.getPerspectiveTransform(detected_corners, expected_corners) # bad, using pre-defined homography
+
+        # self.transform_matrix = homography # already set from good computation
+        logger.info(f"Computed homography for crop with markers: centres={centres}")
+        return image, homography
 
     def load_marker(self, marker_ops, config):
         if not os.path.exists(self.marker_path):

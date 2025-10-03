@@ -810,7 +810,22 @@ class OMRSheetGenerator:
                 # Convert back to numpy array
                 img = np.array(pil_img)
 
-            current_y = header_height
+                # Calculate the maximum Y position used by custom texts
+                # Questions should start below all custom text content
+                max_text_y = 0
+                for text_field in custom_texts:
+                    y = text_field.get("y", 50)
+                    font_size_scale = text_field.get("font_size", 1.0)
+                    actual_font_size = int(30 * font_size_scale)
+                    # Approximate text height (font size + padding)
+                    text_bottom = y + actual_font_size + 10
+                    max_text_y = max(max_text_y, text_bottom)
+
+                # Questions start below all custom text + extra spacing
+                current_y = max(header_height, max_text_y + 60)  # 60px spacing after last text
+            else:
+                # No custom text, use default header height
+                current_y = header_height
 
             # Calculate questions layout using grid system
             questions_drawn = 0
@@ -1046,100 +1061,100 @@ def create_gradio_interface():
 
         with gr.Tabs():
             # ===== ORIGINAL PROCESSING TAB =====
-            with gr.Tab("📋 Process OMR Sheets"):
+            with gr.Tab("📋 辨識答案卡"):
                 gr.Markdown(
                     """
-                ### Quick Start:
-                1. Upload OMR image(s) (PNG/JPG)
-                2. Upload template.json (required)
-                3. Optional: Upload config.json, evaluation.json, and custom marker image
-                4. Click "Process OMR Sheets"
+                ### 快速開始：
+                1. 上傳 OMR 答案卡圖檔（PNG/JPG）
+                2. 上傳模板檔案（template.json，必要）
+                3. 選填：上傳設定檔、評分標準、自訂標記圖檔
+                4. 點擊「🚀 開始辨識答案卡」
 
-                **💡 Tip:** If marker detection is inaccurate, upload a custom marker image that matches your sheet's markers.
+                **💡 提示：** 如果標記偵測不準確，可以上傳符合你的答案卡的自訂標記圖檔。
                 """
                 )
 
                 with gr.Row():
                     with gr.Column(scale=1):
-                        gr.Markdown("### 📤 Upload Files")
+                        gr.Markdown("### 📤 上傳檔案")
 
                         image_input = gr.File(
-                            label="OMR Images",
+                            label="OMR 答案卡圖檔",
                             file_count="multiple",
                             file_types=["image"],
                             type="filepath",
                         )
 
                         template_input = gr.File(
-                            label="Template File (template.json)",
+                            label="模板檔案（template.json）",
                             file_count="single",
                             file_types=[".json"],
                             type="filepath",
                         )
 
-                        with gr.Accordion("Optional Configuration Files", open=False):
+                        with gr.Accordion("選填設定檔案", open=False):
                             config_input = gr.File(
-                                label="Config File (config.json)",
+                                label="設定檔（config.json）",
                                 file_count="single",
                                 file_types=[".json"],
                                 type="filepath",
                             )
 
                             evaluation_input = gr.File(
-                                label="Evaluation File (evaluation.json)",
+                                label="評分標準檔（evaluation.json）",
                                 file_count="single",
                                 file_types=[".json"],
                                 type="filepath",
                             )
 
                             marker_input = gr.File(
-                                label="Custom Marker Image (optional - upload if auto-generated markers don't match)",
+                                label="自訂標記圖檔（選填 - 如果自動產生的標記不符合，請上傳）",
                                 file_count="single",
                                 file_types=["image"],
                                 type="filepath",
                             )
 
-                        with gr.Accordion("Processing Options", open=False):
+                        with gr.Accordion("處理選項", open=False):
                             auto_align_check = gr.Checkbox(
-                                label="Enable Auto-Alignment",
+                                label="啟用自動對齊",
                                 value=False,
-                                info="Experimental: Automatically align slightly misaligned scans",
+                                info="實驗功能：自動對齊輕微偏移的掃描圖",
                             )
 
                             set_layout_check = gr.Checkbox(
-                                label="Set Layout Mode",
+                                label="版面配置模式",
                                 value=False,
-                                info="Visualize template layout instead of processing",
+                                info="視覺化模板配置，而非進行辨識",
                             )
 
                         process_btn = gr.Button(
-                            "🚀 Process OMR Sheets", variant="primary", size="lg"
+                            "🚀 開始辨識答案卡", variant="primary", size="lg"
                         )
 
                     with gr.Column(scale=2):
-                        gr.Markdown("### 📊 Results")
+                        gr.Markdown("### 📊 辨識結果")
 
                         status_output = gr.Textbox(
-                            label="Status",
+                            label="狀態訊息",
                             lines=4,
                             interactive=False,
                         )
 
                         results_csv_output = gr.File(
-                            label="Results CSV",
+                            label="結果 CSV 檔案",
                             interactive=False,
                         )
 
                         marked_images_gallery = gr.Gallery(
-                            label="Marked OMR Images",
+                            label="標記後的答案卡圖檔",
                             show_label=True,
                             columns=2,
                             height="auto",
                         )
 
-                        with gr.Accordion("Processing Log", open=False):
+                        with gr.Accordion("處理記錄", open=False):
                             log_output = gr.Textbox(
-                                label="Detailed Log",
+                                label="詳細記錄",
                                 lines=10,
                                 interactive=False,
                             )
@@ -1165,141 +1180,141 @@ def create_gradio_interface():
                 )
 
             # ===== NEW TEMPLATE BUILDER TAB =====
-            with gr.Tab("🔧 Template Builder"):
+            with gr.Tab("🔧 模板建立工具"):
                 gr.Markdown(
                     """
-                ### Create a New Template Interactively
+                ### 互動式建立新模板
 
-                1. **Upload Reference Image**: Upload a sample OMR sheet image
-                2. **Configure Settings**: Set page and bubble dimensions
-                3. **Add Field Blocks**: Click on image to get coordinates, then add field blocks
-                4. **Preview**: Visualize your template on the image
-                5. **Export**: Download your template.json file
+                1. **上傳參考圖檔**：上傳範例 OMR 答案卡圖檔
+                2. **設定參數**：設定頁面和圓圈尺寸
+                3. **新增欄位區塊**：點擊圖片取得座標，然後新增欄位區塊
+                4. **預覽**：在圖片上視覺化你的模板
+                5. **匯出**：下載你的 template.json 檔案
                 """
                 )
 
                 with gr.Row():
                     with gr.Column(scale=1):
                         # Step 1: Upload Reference Image
-                        gr.Markdown("### 1️⃣ Reference Image")
+                        gr.Markdown("### 1️⃣ 參考圖檔")
                         ref_image_input = gr.File(
-                            label="Upload Reference OMR Image",
+                            label="上傳參考 OMR 圖檔",
                             file_count="single",
                             file_types=["image"],
                             type="filepath",
                         )
-                        load_image_btn = gr.Button("Load Image", variant="secondary")
-                        image_status = gr.Textbox(label="Status", lines=2, interactive=False)
+                        load_image_btn = gr.Button("載入圖檔", variant="secondary")
+                        image_status = gr.Textbox(label="狀態", lines=2, interactive=False)
 
                         # Step 2: Basic Settings
-                        gr.Markdown("### 2️⃣ Basic Settings")
+                        gr.Markdown("### 2️⃣ 基本設定")
                         with gr.Row():
-                            page_width = gr.Number(label="Page Width", value=1846)
-                            page_height = gr.Number(label="Page Height", value=1500)
-                        update_page_btn = gr.Button("Update Page Dimensions", size="sm")
+                            page_width = gr.Number(label="頁面寬度", value=1846)
+                            page_height = gr.Number(label="頁面高度", value=1500)
+                        update_page_btn = gr.Button("更新頁面尺寸", size="sm")
 
                         with gr.Row():
-                            bubble_width = gr.Number(label="Default Bubble Width", value=40)
-                            bubble_height = gr.Number(label="Default Bubble Height", value=40)
-                        update_bubble_btn = gr.Button("Update Bubble Dimensions", size="sm")
+                            bubble_width = gr.Number(label="預設圓圈寬度", value=40)
+                            bubble_height = gr.Number(label="預設圓圈高度", value=40)
+                        update_bubble_btn = gr.Button("更新圓圈尺寸", size="sm")
 
-                        dimension_status = gr.Textbox(label="Dimension Status", lines=1, interactive=False)
+                        dimension_status = gr.Textbox(label="尺寸狀態", lines=1, interactive=False)
 
                     with gr.Column(scale=2):
                         # Image display with click coordinates
-                        gr.Markdown("### 📍 Click on Image to Get Coordinates")
+                        gr.Markdown("### 📍 點擊圖片以取得座標")
                         ref_image_display = gr.Image(
-                            label="Reference Image (Click to select coordinates)",
+                            label="參考圖檔（點擊以選擇座標）",
                             interactive=False,
                         )
                         click_coords_output = gr.Textbox(
-                            label="Selected Coordinates",
-                            value="Click on image to select coordinates",
+                            label="已選座標",
+                            value="點擊圖片以選擇座標",
                             interactive=False,
                         )
                         with gr.Row():
-                            selected_x = gr.Number(label="X Coordinate", value=0)
-                            selected_y = gr.Number(label="Y Coordinate", value=0)
+                            selected_x = gr.Number(label="X 座標", value=0)
+                            selected_y = gr.Number(label="Y 座標", value=0)
 
                 # Step 3: Add Field Blocks
-                with gr.Accordion("3️⃣ Add Field Blocks", open=True):
+                with gr.Accordion("3️⃣ 新增欄位區塊", open=True):
                     with gr.Row():
                         with gr.Column():
-                            block_name_input = gr.Textbox(label="Block Name", placeholder="e.g., MCQ_Block_Q1")
+                            block_name_input = gr.Textbox(label="區塊名稱", placeholder="例如：MCQ_Block_Q1")
 
                             with gr.Row():
-                                origin_x_input = gr.Number(label="Origin X", value=100)
-                                origin_y_input = gr.Number(label="Origin Y", value=100)
+                                origin_x_input = gr.Number(label="起始 X 座標", value=100)
+                                origin_y_input = gr.Number(label="起始 Y 座標", value=100)
 
-                            use_selected_coords_btn = gr.Button("📍 Use Selected Coordinates", size="sm")
+                            use_selected_coords_btn = gr.Button("📍 使用已選座標", size="sm")
 
                             field_type_input = gr.Dropdown(
-                                label="Field Type",
+                                label="欄位類型",
                                 choices=["QTYPE_INT", "QTYPE_INT_FROM_1", "QTYPE_MCQ4", "QTYPE_MCQ5", "CUSTOM"],
                                 value="QTYPE_MCQ4",
                             )
 
                             custom_bubble_values_input = gr.Textbox(
-                                label="Custom Bubble Values (comma-separated, for CUSTOM type)",
-                                placeholder="e.g., A,B,C,D",
+                                label="自訂圓圈值（逗號分隔，用於 CUSTOM 類型）",
+                                placeholder="例如：A,B,C,D",
                                 visible=False,
                             )
 
                         with gr.Column():
                             field_labels_input = gr.Textbox(
-                                label="Field Labels (comma-separated)",
-                                placeholder="e.g., q1,q2,q3 or q1..10",
+                                label="欄位標籤（逗號分隔）",
+                                placeholder="例如：q1,q2,q3 或 q1..10",
                             )
 
                             direction_input = gr.Radio(
-                                label="Direction",
+                                label="方向",
                                 choices=["horizontal", "vertical"],
                                 value="horizontal",
                             )
 
                             with gr.Row():
-                                bubbles_gap_input = gr.Number(label="Bubbles Gap", value=50)
-                                labels_gap_input = gr.Number(label="Labels Gap", value=50)
+                                bubbles_gap_input = gr.Number(label="圓圈間距", value=50)
+                                labels_gap_input = gr.Number(label="標籤間距", value=50)
 
                             with gr.Row():
-                                custom_bubble_w = gr.Number(label="Custom Bubble Width (optional)", value=None)
-                                custom_bubble_h = gr.Number(label="Custom Bubble Height (optional)", value=None)
+                                custom_bubble_w = gr.Number(label="自訂圓圈寬度（選填）", value=None)
+                                custom_bubble_h = gr.Number(label="自訂圓圈高度（選填）", value=None)
 
                     with gr.Row():
-                        add_block_btn = gr.Button("➕ Add Field Block", variant="primary")
-                        remove_block_name = gr.Textbox(label="Block Name to Remove", placeholder="Enter block name")
-                        remove_block_btn = gr.Button("🗑️ Remove Field Block", variant="stop")
+                        add_block_btn = gr.Button("➕ 新增欄位區塊", variant="primary")
+                        remove_block_name = gr.Textbox(label="要移除的區塊名稱", placeholder="輸入區塊名稱")
+                        remove_block_btn = gr.Button("🗑️ 移除欄位區塊", variant="stop")
 
                     field_blocks_display = gr.Textbox(
-                        label="Current Field Blocks",
+                        label="目前欄位區塊",
                         lines=10,
-                        value="No field blocks added yet",
+                        value="尚未新增任何欄位區塊",
                         interactive=False,
                     )
 
                 # Step 4: Custom Labels (Optional)
-                with gr.Accordion("4️⃣ Custom Labels (Optional)", open=False):
+                with gr.Accordion("4️⃣ 自訂標籤（選填）", open=False):
                     with gr.Row():
-                        custom_label_name = gr.Textbox(label="Label Name", placeholder="e.g., Roll")
+                        custom_label_name = gr.Textbox(label="標籤名稱", placeholder="例如：Roll")
                         custom_label_fields = gr.Textbox(
-                            label="Field List (comma-separated)",
-                            placeholder="e.g., Medium,roll1..9",
+                            label="欄位清單（逗號分隔）",
+                            placeholder="例如：Medium,roll1..9",
                         )
 
                     with gr.Row():
-                        add_custom_label_btn = gr.Button("➕ Add Custom Label", variant="primary")
-                        remove_custom_label_name = gr.Textbox(label="Label Name to Remove")
-                        remove_custom_label_btn = gr.Button("🗑️ Remove Custom Label", variant="stop")
+                        add_custom_label_btn = gr.Button("➕ 新增自訂標籤", variant="primary")
+                        remove_custom_label_name = gr.Textbox(label="要移除的標籤名稱")
+                        remove_custom_label_btn = gr.Button("🗑️ 移除自訂標籤", variant="stop")
 
                     custom_labels_display = gr.Textbox(
-                        label="Current Custom Labels",
+                        label="目前自訂標籤",
                         lines=5,
-                        value="No custom labels added yet",
+                        value="尚未新增任何自訂標籤",
                         interactive=False,
                     )
 
                 # Step 5: Preprocessors (Optional)
-                with gr.Accordion("5️⃣ Preprocessors (Optional)", open=False):
+                with gr.Accordion("5️⃣ 前處理器（選填）", open=False):
                     with gr.Row():
                         preprocessor_name = gr.Dropdown(
                             label="Preprocessor Name",
@@ -1462,28 +1477,28 @@ def create_gradio_interface():
                 )
 
             # ===== BLANK SHEET GENERATOR TAB =====
-            with gr.Tab("📄 Generate Blank Sheet"):
+            with gr.Tab("📄 產生空白答案卡"):
                 gr.Markdown(
                     """
-                ### Automatically Generate Blank OMR Sheet
+                ### 自動產生空白 OMR 答案卡
 
-                Simply specify your requirements, and the system will generate:
-                1. 📄 A blank OMR answer sheet image (ready to print)
-                2. 📋 The corresponding template.json file
+                只需指定你的需求，系統會自動產生：
+                1. 📄 空白 OMR 答案卡圖檔（可直接列印）
+                2. 📋 對應的模板檔案（template.json）
 
-                **Perfect for quickly creating custom OMR sheets!**
+                **最適合快速建立自訂 OMR 答案卡！**
                 """
                 )
 
                 with gr.Row():
                     with gr.Column(scale=1):
-                        gr.Markdown("### ⚙️ Sheet Configuration")
+                        gr.Markdown("### ⚙️ 答案卡設定")
 
                         # Basic settings
                         with gr.Group():
-                            gr.Markdown("#### Questions Setup")
+                            gr.Markdown("#### 題目設定")
                             gen_num_questions = gr.Number(
-                                label="Number of Questions",
+                                label="題目數量",
                                 value=20,
                                 minimum=1,
                                 maximum=200,
@@ -1491,31 +1506,31 @@ def create_gradio_interface():
                             )
 
                             gen_question_type = gr.Dropdown(
-                                label="Question Type",
+                                label="題型",
                                 choices=["QTYPE_MCQ4", "QTYPE_MCQ5", "QTYPE_INT", "QTYPE_INT_FROM_1"],
                                 value="QTYPE_MCQ4",
-                                info="MCQ4=A/B/C/D, MCQ5=A/B/C/D/E, INT=0-9 digits",
+                                info="MCQ4=A/B/C/D, MCQ5=A/B/C/D/E, INT=0-9 數字",
                             )
 
                             gen_num_columns = gr.Number(
-                                label="Number of Columns (Horizontal)",
+                                label="欄數（橫向排列）",
                                 value=4,
                                 minimum=1,
                                 maximum=10,
                                 step=1,
-                                info="How many questions to place horizontally (X-axis, left to right)",
+                                info="題目橫向排列幾欄（X 軸，由左至右）",
                             )
 
                         # QR Code settings
                         with gr.Group():
-                            gr.Markdown("#### QR Code ID (Optional)")
+                            gr.Markdown("#### QR Code ID（選填）")
                             gen_include_qr = gr.Checkbox(
-                                label="Include QR Code",
+                                label="包含 QR Code",
                                 value=False,
                             )
                             gen_qr_content = gr.Textbox(
-                                label="QR Content",
-                                placeholder="e.g., student_001 or ID:123",
+                                label="QR Code 內容",
+                                placeholder="例如：student_001 或 ID:123",
                                 visible=False,
                             )
 
@@ -1527,50 +1542,50 @@ def create_gradio_interface():
 
                         # Custom Text Fields
                         with gr.Group():
-                            gr.Markdown("#### Custom Text (Optional)")
+                            gr.Markdown("#### 自訂文字（選填）")
                             gen_custom_text1 = gr.Textbox(
-                                label="Header Text Line 1",
-                                placeholder="e.g., Final Exam - Mathematics",
+                                label="標題第一行",
+                                placeholder="例如：期末考試 - 數學科",
                                 value="",
                             )
                             gen_custom_text2 = gr.Textbox(
-                                label="Header Text Line 2",
-                                placeholder="e.g., Class: _____ Name: _____",
+                                label="標題第二行",
+                                placeholder="例如：班級：_____ 姓名：_____",
                                 value="",
                             )
                             gen_custom_text3 = gr.Textbox(
-                                label="Header Text Line 3",
-                                placeholder="e.g., Date: _____ Score: _____",
+                                label="標題第三行",
+                                placeholder="例如：日期：_____ 分數：_____",
                                 value="",
                             )
 
                         # Alignment markers
                         with gr.Group():
-                            gr.Markdown("#### Alignment Markers")
+                            gr.Markdown("#### 對齊標記")
                             gen_include_markers = gr.Checkbox(
-                                label="Include Alignment Markers",
+                                label="包含對齊標記",
                                 value=True,
-                                info="✓ Recommended for print & scan workflow. Corrects rotation/skew when photographed.",
+                                info="✓ 建議啟用。可校正拍照或掃描時的旋轉和傾斜。",
                             )
 
                         # Page settings
-                        with gr.Accordion("Advanced Settings", open=False):
+                        with gr.Accordion("進階設定", open=False):
                             with gr.Row():
                                 gen_page_width = gr.Number(
-                                    label="Page Width (pixels)",
+                                    label="頁面寬度（像素）",
                                     value=2100,
                                     minimum=800,
                                     maximum=4000,
                                 )
                                 gen_page_height = gr.Number(
-                                    label="Page Height (pixels)",
+                                    label="頁面高度（像素）",
                                     value=2970,
                                     minimum=800,
                                     maximum=5000,
                                 )
 
                             gen_bubble_size = gr.Number(
-                                label="Bubble Size (pixels)",
+                                label="圓圈大小（像素）",
                                 value=40,
                                 minimum=20,
                                 maximum=100,
@@ -1578,43 +1593,43 @@ def create_gradio_interface():
 
                         # Generate button
                         gen_generate_btn = gr.Button(
-                            "✨ Generate Blank Sheet",
+                            "✨ 產生空白答案卡",
                             variant="primary",
                             size="lg",
                         )
 
                     with gr.Column(scale=2):
-                        gr.Markdown("### 📊 Generated Output")
+                        gr.Markdown("### 📊 產生結果")
 
                         gen_status = gr.Textbox(
-                            label="Generation Status",
+                            label="產生狀態",
                             lines=8,
                             interactive=False,
                         )
 
                         gen_sheet_image = gr.Image(
-                            label="Generated Blank Sheet (Preview)",
+                            label="產生的空白答案卡（預覽）",
                             type="filepath",
                         )
 
                         with gr.Row():
                             gen_sheet_file = gr.File(
-                                label="Download Blank Sheet Image",
+                                label="下載空白答案卡圖檔",
                             )
                             gen_template_file = gr.File(
-                                label="Download Template JSON",
+                                label="下載模板 JSON 檔案",
                             )
 
                         gr.Markdown(
                             """
-                        ### 💡 Next Steps
+                        ### 💡 後續步驟
 
-                        1. **Download both files** (sheet image and template)
-                        2. **Print the blank sheet** or use it digitally
-                        3. Fill in answers on the sheet (or simulate filled answers)
-                        4. Use the "Process OMR Sheets" tab with:
-                           - Your filled OMR images
-                           - The generated template.json
+                        1. **下載兩個檔案**（答案卡圖檔和模板檔案）
+                        2. **列印空白答案卡** 或數位使用
+                        3. 在答案卡上填寫答案（或模擬填答）
+                        4. 使用「📋 辨識答案卡」標籤頁進行辨識：
+                           - 上傳填寫完成的答案卡圖檔
+                           - 上傳產生的 template.json 模板檔案
                         """
                         )
 
@@ -1707,58 +1722,59 @@ def create_gradio_interface():
                 )
 
             # ===== BATCH GENERATION TAB =====
-            with gr.Tab("📦 Batch Generate Sheets"):
+            with gr.Tab("📦 批次產生答案卡"):
                 gr.Markdown(
                     """
-                ### Batch Generate OMR Sheets from ID List
+                ### 從學生名單批次產生 OMR 答案卡
 
-                Upload an Excel or CSV file containing student IDs, and automatically generate
-                personalized OMR sheets with unique QR codes for each student.
+                上傳包含學生資料的 Excel 或 CSV 檔案，自動為每位學生產生專屬的 OMR 答案卡，
+                每張答案卡都包含獨一無二的 QR Code，用於快速識別學生身份。
 
-                **Features:**
-                - Upload Excel (.xlsx, .xls) or CSV files
-                - Generate individual sheets for each ID
-                - Each sheet includes a unique QR code for identification
-                - Download all sheets and templates as a ZIP file
+                **功能特色：**
+                - 支援 Excel (.xlsx, .xls) 或 CSV 檔案
+                - 為每位學生產生專屬答案卡
+                - 每張答案卡包含獨特的 QR Code（編碼學生 ID）
+                - 可印上學生個人資料（姓名、班級等）
+                - 下載包含所有答案卡和模板的 ZIP 檔案
                 """
                 )
 
                 with gr.Row():
                     with gr.Column(scale=1):
-                        gr.Markdown("### 📤 Upload ID List")
+                        gr.Markdown("### 📤 上傳學生名單")
 
                         batch_file_input = gr.File(
-                            label="Excel/CSV File with IDs",
+                            label="Excel/CSV 檔案（包含學生資料）",
                             file_count="single",
                             file_types=[".xlsx", ".xls", ".csv"],
                             type="filepath",
                         )
 
                         batch_column_name = gr.Textbox(
-                            label="ID Column Name (optional)",
-                            placeholder="e.g., student_id (leave empty for first column)",
+                            label="ID 欄位名稱（選填）",
+                            placeholder="例如：student_id、學號、編號（留空則使用第一欄）",
                             value="",
                         )
 
                         batch_data_columns = gr.Textbox(
-                            label="Student Data Columns (optional)",
-                            placeholder="e.g., name,class,section (comma-separated, leave empty to use all columns)",
+                            label="學生資料欄位（選填）",
+                            placeholder="例如：name,class,section 或 姓名,班級,座號（逗號分隔，留空則使用所有欄位）",
                             value="",
-                            info="Additional columns to print on each sheet (e.g., student name, class)",
+                            info="要印在答案卡上的欄位（如：學生姓名、班級、座號等）",
                         )
 
                         batch_sheet_name = gr.Textbox(
-                            label="Excel Sheet Name/Index (optional)",
-                            placeholder="0 for first sheet, or sheet name",
+                            label="Excel 工作表名稱/索引（選填）",
+                            placeholder="0 代表第一個工作表，或輸入工作表名稱",
                             value="0",
                         )
 
-                        gr.Markdown("### ⚙️ Sheet Configuration")
+                        gr.Markdown("### ⚙️ 答案卡設定")
 
                         with gr.Group():
-                            gr.Markdown("#### Questions Setup")
+                            gr.Markdown("#### 題目設定")
                             batch_num_questions = gr.Number(
-                                label="Number of Questions",
+                                label="題目數量",
                                 value=20,
                                 minimum=1,
                                 maximum=200,
@@ -1766,13 +1782,13 @@ def create_gradio_interface():
                             )
 
                             batch_question_type = gr.Dropdown(
-                                label="Question Type",
+                                label="題型",
                                 choices=["QTYPE_MCQ4", "QTYPE_MCQ5", "QTYPE_INT"],
                                 value="QTYPE_MCQ4",
                             )
 
                             batch_num_columns = gr.Number(
-                                label="Number of Columns",
+                                label="欄數（橫向排列）",
                                 value=4,
                                 minimum=1,
                                 maximum=10,
@@ -1780,78 +1796,78 @@ def create_gradio_interface():
                             )
 
                         with gr.Group():
-                            gr.Markdown("#### Options")
+                            gr.Markdown("#### 其他選項")
                             batch_include_markers = gr.Checkbox(
-                                label="Include Alignment Markers",
+                                label="包含對齊標記（建議勾選）",
                                 value=True,
                             )
 
                         # Custom Text Fields for Batch
                         with gr.Group():
-                            gr.Markdown("#### Custom Text (Optional)")
+                            gr.Markdown("#### 共用標題文字（選填）")
                             batch_custom_text1 = gr.Textbox(
-                                label="Header Text Line 1",
-                                placeholder="e.g., Final Exam - Mathematics",
+                                label="標題第一行（粗體、大字）",
+                                placeholder="例如：期末考試 - 數學科",
                                 value="",
                             )
                             batch_custom_text2 = gr.Textbox(
-                                label="Header Text Line 2",
-                                placeholder="e.g., Class: _____ Name: _____",
+                                label="標題第二行",
+                                placeholder="例如：班級：_____ 座號：_____",
                                 value="",
                             )
                             batch_custom_text3 = gr.Textbox(
-                                label="Header Text Line 3",
-                                placeholder="e.g., Date: _____ Score: _____",
+                                label="標題第三行",
+                                placeholder="例如：日期：_____ 分數：_____",
                                 value="",
                             )
 
-                        with gr.Accordion("Advanced Settings", open=False):
+                        with gr.Accordion("進階設定", open=False):
                             with gr.Row():
                                 batch_page_width = gr.Number(
-                                    label="Page Width (pixels)",
+                                    label="頁面寬度（像素）",
                                     value=2100,
                                 )
                                 batch_page_height = gr.Number(
-                                    label="Page Height (pixels)",
+                                    label="頁面高度（像素）",
                                     value=2970,
                                 )
 
                             batch_bubble_size = gr.Number(
-                                label="Bubble Size (pixels)",
+                                label="圓圈大小（像素）",
                                 value=40,
                             )
 
                         batch_generate_btn = gr.Button(
-                            "🚀 Generate Batch Sheets",
+                            "🚀 批次產生答案卡",
                             variant="primary",
                             size="lg",
                         )
 
                     with gr.Column(scale=2):
-                        gr.Markdown("### 📊 Generation Progress")
+                        gr.Markdown("### 📊 產生進度")
 
                         batch_status = gr.Textbox(
-                            label="Status",
+                            label="狀態訊息",
                             lines=12,
                             interactive=False,
                         )
 
                         batch_output_file = gr.File(
-                            label="Download All Sheets (ZIP)",
+                            label="下載所有答案卡（ZIP 檔案）",
                         )
 
                         gr.Markdown(
                             """
-                        ### 💡 Output Structure
+                        ### 💡 輸出檔案結構
 
-                        The ZIP file will contain:
+                        ZIP 檔案將包含：
                         ```
                         generated_sheets.zip
-                        ├── sheets/              # Individual OMR sheet images
+                        ├── sheets/              # 個別答案卡圖檔
                         │   ├── ID001.png
                         │   ├── ID002.png
                         │   └── ...
-                        └── templates/           # Corresponding templates
+                        └── templates/           # 對應的模板檔案
                             ├── ID001_template.json
                             ├── ID002_template.json
                             └── ...
