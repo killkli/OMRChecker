@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import zipfile
+import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
 
@@ -28,6 +29,7 @@ from src.entry import process_dir
 from src.logger import logger
 from src.template import Template
 from src.utils.parsing import open_config_with_defaults
+from batch_generate_sheets import BatchOMRGenerator
 
 
 class OMRProcessorGradio:
@@ -58,9 +60,10 @@ class OMRProcessorGradio:
         template_file: str,
         config_file: Optional[str] = None,
         evaluation_file: Optional[str] = None,
+        marker_file: Optional[str] = None,
         auto_align: bool = False,
         set_layout: bool = False,
-    ) -> Tuple[str, Optional[str], List[str], str]:
+    ) -> Tuple[str, Optional[str], List[str], str, Optional[str]]:
         """
         Process OMR sheets with uploaded files.
 
@@ -69,6 +72,22 @@ class OMRProcessorGradio:
             template_file: Path to template.json file
             config_file: Optional path to config.json file
             evaluation_file: Optional path to evaluation.json file
+            marker_file: Optional path to custom marker image file
+            auto_align: Enable auto-alignment
+            set_layout: Enable layout visualization mode
+
+        Returns:
+            Tuple of (status_message, results_csv_path, marked_images, log_output, qr_data)
+        """
+        """
+        Process OMR sheets with uploaded files.
+
+        Args:
+            image_files: List of paths to uploaded image files
+            template_file: Path to template.json file
+            config_file: Optional path to config.json file
+            evaluation_file: Optional path to evaluation.json file
+            marker_file: Optional path to custom marker image file
             auto_align: Enable auto-alignment
             set_layout: Enable layout visualization mode
 
@@ -100,7 +119,7 @@ class OMRProcessorGradio:
             template_dest = Path(input_dir) / "template.json"
             shutil.copy2(template_file, template_dest)
 
-            # Check if template requires marker and generate if missing
+            # Check if template requires marker and handle marker file
             with open(template_dest, 'r') as f:
                 template_data = json.load(f)
 
@@ -109,23 +128,35 @@ class OMRProcessorGradio:
                 if preprocessor.get("name") == "CropOnMarkers":
                     marker_path = preprocessor.get("options", {}).get("relativePath", "")
                     if marker_path:
-                        marker_file = Path(input_dir) / marker_path
-                        # Generate marker if it doesn't exist
-                        if not marker_file.exists():
+                        marker_dest_file = Path(input_dir) / marker_path
+
+                        # Use custom marker if provided by user
+                        if marker_file and os.path.exists(marker_file):
+                            logger.info(f"Using custom marker file: {marker_file}")
+                            import shutil
+                            shutil.copy2(marker_file, marker_dest_file)
+                            logger.info(f"✅ Copied custom marker to: {marker_dest_file}")
+                        # Otherwise generate marker if it doesn't exist
+                        elif not marker_dest_file.exists():
                             logger.info(f"Auto-generating missing marker: {marker_path}")
-                            # Generate standard marker (50x50 with white center)
-                            marker_size = 50
+                            # Get page dimensions from template to calculate marker size (1/10 of page width)
+                            page_dims = template_data.get("pageDimensions", [2100, 2970])
+                            page_width = page_dims[0]
+                            marker_size = int(page_width * 0.1)
+
+                            # Generate concentric circles marker (black-white-black)
                             marker_img = np.ones((marker_size, marker_size, 3), dtype=np.uint8) * 255
-                            cv2.rectangle(marker_img, (0, 0), (marker_size, marker_size), (0, 0, 0), -1)
-                            cv2.rectangle(
-                                marker_img,
-                                (10, 10),
-                                (marker_size - 10, marker_size - 10),
-                                (255, 255, 255),
-                                -1,
-                            )
-                            cv2.imwrite(str(marker_file), marker_img)
-                            logger.info(f"✅ Generated marker at: {marker_file}")
+                            center = marker_size // 2
+
+                            # Outer circle (black)
+                            cv2.circle(marker_img, (center, center), marker_size // 2, (0, 0, 0), -1)
+                            # Middle circle (white)
+                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.7), (255, 255, 255), -1)
+                            # Inner circle (black)
+                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.4), (0, 0, 0), -1)
+
+                            cv2.imwrite(str(marker_dest_file), marker_img)
+                            logger.info(f"✅ Generated marker at: {marker_dest_file} (size: {marker_size}x{marker_size})")
 
             # Copy optional files if provided
             if config_file:
@@ -159,8 +190,8 @@ class OMRProcessorGradio:
             marked_images = []
             status_msg = "Processing completed successfully!"
 
-            # Find results CSV
-            results_dir = Path(output_dir) / "CheckedOMRs"
+            # Find results CSV in Results directory
+            results_dir = Path(output_dir) / "Results"
             if results_dir.exists():
                 csv_files = list(results_dir.glob("*.csv"))
                 if csv_files:
@@ -290,7 +321,7 @@ class TemplateBuilder:
             else:
                 if not custom_bubble_values:
                     return (
-                        "Error: Custom bubble values required for CUSTOM type",
+                        "Error: Custom bubble values required for QTYPE_CUSTOM type",
                         self._format_field_blocks(),
                     )
                 bubble_values_list = [
@@ -556,31 +587,34 @@ class OMRSheetGenerator:
         num_questions: int,
         question_type: str,
         num_columns: int,
-        include_roll_number: bool,
-        roll_digits: int,
         include_markers: bool,
         page_width: int,
         page_height: int,
         bubble_size: int,
+        include_qr: bool,
+        qr_content: str = "",
     ) -> Tuple[Any, str, str]:
         """
-        Generate a blank OMR sheet with automatic layout.
+        Generate a blank OMR sheet with automatic layout and QR Code.
 
         Args:
             num_questions: Total number of questions
             question_type: Type of questions (QTYPE_MCQ4, QTYPE_MCQ5, QTYPE_INT, etc.)
             num_columns: Number of columns (questions horizontally, X-axis)
-            include_roll_number: Whether to include roll number field
-            roll_digits: Number of digits in roll number
             include_markers: Whether to include alignment markers
             page_width: Width of the page
             page_height: Height of the page
             bubble_size: Size of bubbles (width and height)
+            include_qr: Whether to include QR Code
+            qr_content: Content to encode in QR Code
 
         Returns:
             Tuple of (generated_image, template_json_path, status_message)
         """
         try:
+            import qrcode  # For QR generation
+            from qrcode.image.pil import PilImage
+
             # Create blank white image
             img = np.ones((page_height, page_width, 3), dtype=np.uint8) * 255
 
@@ -593,9 +627,17 @@ class OMRSheetGenerator:
 
             num_options = len(bubble_values)
 
-            # Calculate layout parameters with optimized spacing
-            margin = 80
-            header_height = 120
+            # Calculate marker size first (if markers are included)
+            if include_markers:
+                marker_size = int(page_width * 0.1)
+                # Margin must be larger than marker to avoid overlap
+                margin = marker_size + 30  # Extra 30px spacing
+                header_height = marker_size + 40  # Start content below markers
+            else:
+                marker_size = 0
+                margin = 80
+                header_height = 120
+
             bubble_gap = bubble_size + 8
 
             # Calculate available width for questions
@@ -625,16 +667,19 @@ class OMRSheetGenerator:
 
             # Calculate coordinate space based on whether markers are used
             if include_markers:
-                marker_size = 50
-                # Markers will be placed at page corners
+                # Marker size is 1/10 of page width (approximately A4 width ratio)
+                marker_size = int(page_width * 0.1)
+
+                # Markers will be placed near page corners with fixed edge spacing
+                edge_spacing = 20  # Fixed distance from page edge
                 marker_positions = [
-                    (margin // 2, margin // 2),
-                    (page_width - margin // 2 - marker_size, margin // 2),
-                    (margin // 2, page_height - margin // 2 - marker_size),
+                    (edge_spacing, edge_spacing),  # Top-left
+                    (page_width - edge_spacing - marker_size, edge_spacing),  # Top-right
+                    (edge_spacing, page_height - edge_spacing - marker_size),  # Bottom-left
                     (
-                        page_width - margin // 2 - marker_size,
-                        page_height - margin // 2 - marker_size,
-                    ),
+                        page_width - edge_spacing - marker_size,
+                        page_height - edge_spacing - marker_size,
+                    ),  # Bottom-right
                 ]
 
                 # Calculate marker centers
@@ -652,21 +697,34 @@ class OMRSheetGenerator:
                 coord_offset_x = marker_centers[0][0]
                 coord_offset_y = marker_centers[0][1]
 
-                # Draw markers on the image
+                # Draw concentric circle markers on the image (3 circles: black-white-black)
                 for x, y in marker_positions:
-                    cv2.rectangle(
+                    center_x = x + marker_size // 2
+                    center_y = y + marker_size // 2
+
+                    # Outer circle (black)
+                    cv2.circle(
                         img,
-                        (x, y),
-                        (x + marker_size, y + marker_size),
+                        (center_x, center_y),
+                        marker_size // 2,
                         (0, 0, 0),
-                        -1,
+                        -1,  # filled
                     )
-                    cv2.rectangle(
+                    # Middle circle (white)
+                    cv2.circle(
                         img,
-                        (x + 10, y + 10),
-                        (x + marker_size - 10, y + marker_size - 10),
+                        (center_x, center_y),
+                        int(marker_size // 2 * 0.7),
                         (255, 255, 255),
-                        -1,
+                        -1,  # filled
+                    )
+                    # Inner circle (black)
+                    cv2.circle(
+                        img,
+                        (center_x, center_y),
+                        int(marker_size // 2 * 0.4),
+                        (0, 0, 0),
+                        -1,  # filled
                     )
             else:
                 # No markers: pageDimensions = full page size, no offset
@@ -685,82 +743,6 @@ class OMRSheetGenerator:
             }
 
             current_y = header_height
-
-            # Add roll number field if requested
-            if include_roll_number:
-                roll_start_x = margin
-                roll_start_y = current_y
-
-                # Draw roll number label
-                cv2.putText(
-                    img,
-                    "Roll Number:",
-                    (roll_start_x, roll_start_y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 0),
-                    2,
-                )
-
-                # Draw roll number bubbles
-                for digit_idx in range(roll_digits):
-                    digit_x = roll_start_x + digit_idx * (bubble_size + 20)
-
-                    # Draw digit label
-                    cv2.putText(
-                        img,
-                        str(digit_idx + 1),
-                        (digit_x + bubble_size // 2 - 5, roll_start_y - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 0, 0),
-                        1,
-                    )
-
-                    # Draw bubbles for each digit (0-9)
-                    for val_idx in range(10):
-                        bubble_y = roll_start_y + val_idx * bubble_gap
-                        cv2.circle(
-                            img,
-                            (digit_x + bubble_size // 2, bubble_y + bubble_size // 2),
-                            bubble_size // 2,
-                            (0, 0, 0),
-                            2,
-                        )
-
-                        # Draw value label
-                        cv2.putText(
-                            img,
-                            str(val_idx),
-                            (digit_x - 25, bubble_y + bubble_size // 2 + 5),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5,
-                            (0, 0, 0),
-                            1,
-                        )
-
-                # Add to template using range notation
-                if roll_digits > 1:
-                    field_labels_range = f"roll1..{roll_digits}"
-                else:
-                    field_labels_range = "roll1"
-
-                # Template coordinates are relative to pageDimensions coordinate space
-                template_roll_x = roll_start_x - coord_offset_x
-                template_roll_y = roll_start_y - coord_offset_y
-
-                self.template_data["fieldBlocks"]["Roll"] = {
-                    "fieldType": "QTYPE_INT",
-                    "fieldLabels": [field_labels_range],
-                    "origin": [template_roll_x, template_roll_y],
-                    "bubblesGap": bubble_gap,
-                    "labelsGap": bubble_size + 20,
-                }
-
-                # Add custom label for roll number (using range notation)
-                self.template_data["customLabels"]["Roll"] = [field_labels_range]
-
-                current_y = roll_start_y + 10 * bubble_gap + 50
 
             # Calculate questions layout using grid system
             questions_drawn = 0
@@ -849,21 +831,75 @@ class OMRSheetGenerator:
                 # Move to next row (Y-axis downward)
                 current_y += row_gap
 
+            # Add QR Code if requested
+            msg = ''  # Initialize msg for QR block
+            if include_qr and qr_content:
+                qr_size = max(200, bubble_size * 5)  # QR size based on bubble, min 200px
+                qr_x = page_width - margin - qr_size
+                qr_y = page_height - margin - qr_size
+
+                # Generate QR Code
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(qr_content)
+                qr.make(fit=True)
+
+                # Create QR image as RGB
+                qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+                # Convert to numpy array (ensure uint8 RGB)
+                qr_np = np.array(qr_img)
+                if qr_np.dtype != np.uint8:
+                    qr_np = qr_np.astype(np.uint8)
+
+                # Resize QR
+                qr_resized = cv2.resize(qr_np, (qr_size, qr_size), interpolation=cv2.INTER_AREA)
+
+                # Convert to BGR for OpenCV
+                qr_bgr = cv2.cvtColor(qr_resized, cv2.COLOR_RGB2BGR)
+
+                # Paste QR on sheet
+                img[qr_y:qr_y+qr_size, qr_x:qr_x+qr_size] = qr_bgr
+
+                # Add to template as special field (custom for QR)
+                qr_block_name = "QR_Code"
+                template_qr_x = qr_x - coord_offset_x
+                template_qr_y = qr_y - coord_offset_y
+                self.template_data["fieldBlocks"][qr_block_name] = {
+                    "fieldType": "QTYPE_CUSTOM",
+                    "fieldLabels": ["qr_id"],
+                    "origin": [template_qr_x, template_qr_y],
+                    "bubbleValues": [qr_content],  # Placeholder for custom decoding
+                    "bubblesGap": 0,
+                    "labelsGap": 0,
+                    "direction": "horizontal",
+                }
+
+                logger.info(f"Generated QR block origin: [template_qr_x, template_qr_y] = [{template_qr_x}, {template_qr_y}]")
+
+                msg += "\nQR Code: Added with content"
+
             # Add preprocessors if markers are included
             if include_markers:
-                # Save marker image
+                # Save marker image with concentric circles design
                 marker_temp = tempfile.NamedTemporaryFile(
                     suffix=".jpg", delete=False, mode="wb"
                 )
+                # White background
                 marker_img = np.ones((marker_size, marker_size, 3), dtype=np.uint8) * 255
-                cv2.rectangle(marker_img, (0, 0), (marker_size, marker_size), (0, 0, 0), -1)
-                cv2.rectangle(
-                    marker_img,
-                    (10, 10),
-                    (marker_size - 10, marker_size - 10),
-                    (255, 255, 255),
-                    -1,
-                )
+
+                center = marker_size // 2
+                # Outer circle (black)
+                cv2.circle(marker_img, (center, center), marker_size // 2, (0, 0, 0), -1)
+                # Middle circle (white)
+                cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.7), (255, 255, 255), -1)
+                # Inner circle (black)
+                cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.4), (0, 0, 0), -1)
+
                 cv2.imwrite(marker_temp.name, marker_img)
                 marker_temp.close()
 
@@ -899,14 +935,19 @@ class OMRSheetGenerator:
 
             msg = f"✅ Generated OMR sheet successfully!\n"
             msg += f"Questions: {num_questions} ({question_type})\n"
-            msg += f"Layout: {num_columns} columns × {num_rows} rows\n"
-            if include_roll_number:
-                msg += f"Roll Number: {roll_digits} digits\n"
+            msg += f"Layout: {num_columns} columns × {int(num_rows)} rows\n"
             if include_markers:
                 msg += "Alignment markers: Yes\n"
+            if include_qr:
+                msg += "QR Code: Added\n"
             msg += f"\n📄 Image saved\n📋 Template JSON generated"
 
             return sheet_temp.name, template_temp.name, msg
+
+        except ImportError as e:
+            if "qrcode" in str(e):
+                return None, None, "Error: qrcode library not installed. Run 'pip install qrcode[pil]'"
+            raise e
 
         except Exception as e:
             import traceback
@@ -915,8 +956,9 @@ class OMRSheetGenerator:
             return None, None, error_msg
 
 
-# Initialize sheet generator
+# Initialize sheet generator and batch generator
 sheet_generator = OMRSheetGenerator()
+batch_generator = BatchOMRGenerator()
 
 
 def create_gradio_interface():
@@ -942,8 +984,10 @@ def create_gradio_interface():
                 ### Quick Start:
                 1. Upload OMR image(s) (PNG/JPG)
                 2. Upload template.json (required)
-                3. Optional: Upload config.json and evaluation.json
+                3. Optional: Upload config.json, evaluation.json, and custom marker image
                 4. Click "Process OMR Sheets"
+
+                **💡 Tip:** If marker detection is inaccurate, upload a custom marker image that matches your sheet's markers.
                 """
                 )
 
@@ -977,6 +1021,13 @@ def create_gradio_interface():
                                 label="Evaluation File (evaluation.json)",
                                 file_count="single",
                                 file_types=[".json"],
+                                type="filepath",
+                            )
+
+                            marker_input = gr.File(
+                                label="Custom Marker Image (optional - upload if auto-generated markers don't match)",
+                                file_count="single",
+                                file_types=["image"],
                                 type="filepath",
                             )
 
@@ -1033,6 +1084,7 @@ def create_gradio_interface():
                         template_input,
                         config_input,
                         evaluation_input,
+                        marker_input,
                         auto_align_check,
                         set_layout_check,
                     ],
@@ -1386,22 +1438,24 @@ def create_gradio_interface():
                                 info="How many questions to place horizontally (X-axis, left to right)",
                             )
 
-                        # Roll number settings
+                        # QR Code settings
                         with gr.Group():
-                            gr.Markdown("#### Roll Number (Optional)")
-                            gen_include_roll = gr.Checkbox(
-                                label="Include Roll Number Field",
-                                value=True,
+                            gr.Markdown("#### QR Code ID (Optional)")
+                            gen_include_qr = gr.Checkbox(
+                                label="Include QR Code",
+                                value=False,
+                            )
+                            gen_qr_content = gr.Textbox(
+                                label="QR Content",
+                                placeholder="e.g., student_001 or ID:123",
+                                visible=False,
                             )
 
-                            gen_roll_digits = gr.Number(
-                                label="Number of Digits",
-                                value=9,
-                                minimum=1,
-                                maximum=20,
-                                step=1,
-                                visible=True,
-                            )
+                        gen_include_qr.change(
+                            fn=lambda inc: gr.update(visible=inc),
+                            inputs=[gen_include_qr],
+                            outputs=[gen_qr_content],
+                        )
 
                         # Alignment markers
                         with gr.Group():
@@ -1479,30 +1533,20 @@ def create_gradio_interface():
 
                 # === Event Handlers for Sheet Generator ===
 
-                # Toggle roll digits visibility based on checkbox
-                def toggle_roll_digits(include_roll):
-                    return gr.update(visible=include_roll)
-
-                gen_include_roll.change(
-                    fn=toggle_roll_digits,
-                    inputs=[gen_include_roll],
-                    outputs=[gen_roll_digits],
-                )
-
                 # Generate sheet button click
                 def generate_sheet_wrapper(
-                    num_q, q_type, num_cols, inc_roll, roll_dig, inc_mark, pw, ph, bs
+                    num_q, q_type, num_cols, inc_mark, pw, ph, bs, inc_qr, qr_content
                 ):
                     sheet_path, template_path, msg = sheet_generator.generate_sheet(
                         num_questions=int(num_q),
                         question_type=q_type,
                         num_columns=int(num_cols),
-                        include_roll_number=inc_roll,
-                        roll_digits=int(roll_dig) if inc_roll else 0,
                         include_markers=inc_mark,
                         page_width=int(pw),
                         page_height=int(ph),
                         bubble_size=int(bs),
+                        include_qr=inc_qr,
+                        qr_content=qr_content or "",
                     )
                     return sheet_path, sheet_path, template_path, msg
 
@@ -1512,18 +1556,250 @@ def create_gradio_interface():
                         gen_num_questions,
                         gen_question_type,
                         gen_num_columns,
-                        gen_include_roll,
-                        gen_roll_digits,
                         gen_include_markers,
                         gen_page_width,
                         gen_page_height,
                         gen_bubble_size,
+                        gen_include_qr,
+                        gen_qr_content,
                     ],
                     outputs=[
                         gen_sheet_image,
                         gen_sheet_file,
                         gen_template_file,
                         gen_status,
+                    ],
+                )
+
+            # ===== BATCH GENERATION TAB =====
+            with gr.Tab("📦 Batch Generate Sheets"):
+                gr.Markdown(
+                    """
+                ### Batch Generate OMR Sheets from ID List
+
+                Upload an Excel or CSV file containing student IDs, and automatically generate
+                personalized OMR sheets with unique QR codes for each student.
+
+                **Features:**
+                - Upload Excel (.xlsx, .xls) or CSV files
+                - Generate individual sheets for each ID
+                - Each sheet includes a unique QR code for identification
+                - Download all sheets and templates as a ZIP file
+                """
+                )
+
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 📤 Upload ID List")
+
+                        batch_file_input = gr.File(
+                            label="Excel/CSV File with IDs",
+                            file_count="single",
+                            file_types=[".xlsx", ".xls", ".csv"],
+                            type="filepath",
+                        )
+
+                        batch_column_name = gr.Textbox(
+                            label="Column Name (optional)",
+                            placeholder="e.g., student_id (leave empty for first column)",
+                            value="",
+                        )
+
+                        batch_sheet_name = gr.Textbox(
+                            label="Excel Sheet Name/Index (optional)",
+                            placeholder="0 for first sheet, or sheet name",
+                            value="0",
+                        )
+
+                        gr.Markdown("### ⚙️ Sheet Configuration")
+
+                        with gr.Group():
+                            gr.Markdown("#### Questions Setup")
+                            batch_num_questions = gr.Number(
+                                label="Number of Questions",
+                                value=20,
+                                minimum=1,
+                                maximum=200,
+                                step=1,
+                            )
+
+                            batch_question_type = gr.Dropdown(
+                                label="Question Type",
+                                choices=["QTYPE_MCQ4", "QTYPE_MCQ5", "QTYPE_INT"],
+                                value="QTYPE_MCQ4",
+                            )
+
+                            batch_num_columns = gr.Number(
+                                label="Number of Columns",
+                                value=4,
+                                minimum=1,
+                                maximum=10,
+                                step=1,
+                            )
+
+                        with gr.Group():
+                            gr.Markdown("#### Options")
+                            batch_include_markers = gr.Checkbox(
+                                label="Include Alignment Markers",
+                                value=True,
+                            )
+
+                        with gr.Accordion("Advanced Settings", open=False):
+                            with gr.Row():
+                                batch_page_width = gr.Number(
+                                    label="Page Width (pixels)",
+                                    value=2100,
+                                )
+                                batch_page_height = gr.Number(
+                                    label="Page Height (pixels)",
+                                    value=2970,
+                                )
+
+                            batch_bubble_size = gr.Number(
+                                label="Bubble Size (pixels)",
+                                value=40,
+                            )
+
+                        batch_generate_btn = gr.Button(
+                            "🚀 Generate Batch Sheets",
+                            variant="primary",
+                            size="lg",
+                        )
+
+                    with gr.Column(scale=2):
+                        gr.Markdown("### 📊 Generation Progress")
+
+                        batch_status = gr.Textbox(
+                            label="Status",
+                            lines=12,
+                            interactive=False,
+                        )
+
+                        batch_output_file = gr.File(
+                            label="Download All Sheets (ZIP)",
+                        )
+
+                        gr.Markdown(
+                            """
+                        ### 💡 Output Structure
+
+                        The ZIP file will contain:
+                        ```
+                        generated_sheets.zip
+                        ├── sheets/              # Individual OMR sheet images
+                        │   ├── ID001.png
+                        │   ├── ID002.png
+                        │   └── ...
+                        └── templates/           # Corresponding templates
+                            ├── ID001_template.json
+                            ├── ID002_template.json
+                            └── ...
+                        ```
+                        """
+                        )
+
+                # === Event Handler for Batch Generation ===
+                def batch_generate_wrapper(
+                    excel_file,
+                    column_name,
+                    sheet_name,
+                    num_q,
+                    q_type,
+                    num_cols,
+                    inc_mark,
+                    pw,
+                    ph,
+                    bs,
+                ):
+                    """Wrapper function for batch generation in Gradio."""
+                    try:
+                        if excel_file is None:
+                            return "❌ Please upload an Excel or CSV file", None
+
+                        # Parse sheet name (can be index or name)
+                        try:
+                            sheet_idx = int(sheet_name) if sheet_name else 0
+                        except ValueError:
+                            sheet_idx = sheet_name if sheet_name else 0
+
+                        # Read IDs from Excel/CSV
+                        status_msg = "📖 Reading IDs from file...\n"
+                        ids = batch_generator.read_ids_from_excel(
+                            excel_file,
+                            column_name=column_name if column_name else None,
+                            sheet_name=sheet_idx,
+                        )
+
+                        if not ids:
+                            return "❌ No IDs found in the file", None
+
+                        status_msg += f"✓ Found {len(ids)} IDs\n"
+                        status_msg += f"Sample IDs: {', '.join(ids[:5])}\n\n"
+                        status_msg += "🔨 Generating sheets...\n"
+
+                        # Create temporary output directory
+                        temp_output = tempfile.mkdtemp(prefix="batch_omr_")
+
+                        # Generate batch
+                        success, failed = batch_generator.generate_batch(
+                            ids=ids,
+                            output_dir=Path(temp_output),
+                            num_questions=int(num_q),
+                            question_type=q_type,
+                            num_columns=int(num_cols),
+                            include_markers=inc_mark,
+                            page_width=int(pw),
+                            page_height=int(ph),
+                            bubble_size=int(bs),
+                        )
+
+                        status_msg += f"\n{'='*50}\n"
+                        status_msg += f"✅ Successfully generated: {success}\n"
+                        status_msg += f"❌ Failed: {failed}\n"
+                        status_msg += f"{'='*50}\n\n"
+
+                        if success == 0:
+                            return status_msg + "❌ No sheets were generated successfully", None
+
+                        # Create ZIP file
+                        status_msg += "📦 Creating ZIP archive...\n"
+                        zip_path = temp_output + "_sheets.zip"
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for root, dirs, files in os.walk(temp_output):
+                                for file in files:
+                                    file_path = os.path.join(root, file)
+                                    arcname = os.path.relpath(file_path, temp_output)
+                                    zipf.write(file_path, arcname)
+
+                        status_msg += f"✓ ZIP archive created: {len(ids)} sheets\n"
+                        status_msg += f"\n🎉 Batch generation complete!\n"
+                        status_msg += f"Download the ZIP file below."
+
+                        return status_msg, zip_path
+
+                    except Exception as e:
+                        import traceback
+                        error_msg = f"❌ Error during batch generation:\n{str(e)}\n\n"
+                        error_msg += traceback.format_exc()
+                        return error_msg, None
+
+                batch_generate_btn.click(
+                    fn=batch_generate_wrapper,
+                    inputs=[
+                        batch_file_input,
+                        batch_column_name,
+                        batch_sheet_name,
+                        batch_num_questions,
+                        batch_question_type,
+                        batch_num_columns,
+                        batch_include_markers,
+                        batch_page_width,
+                        batch_page_height,
+                        batch_bubble_size,
+                    ],
+                    outputs=[
+                        batch_status,
+                        batch_output_file,
                     ],
                 )
 
