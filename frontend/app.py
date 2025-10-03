@@ -593,6 +593,7 @@ class OMRSheetGenerator:
         bubble_size: int,
         include_qr: bool,
         qr_content: str = "",
+        custom_texts: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[Any, str, str]:
         """
         Generate a blank OMR sheet with automatic layout and QR Code.
@@ -607,6 +608,8 @@ class OMRSheetGenerator:
             bubble_size: Size of bubbles (width and height)
             include_qr: Whether to include QR Code
             qr_content: Content to encode in QR Code
+            custom_texts: Optional list of custom text fields with format:
+                [{"text": "Exam Title", "x": 100, "y": 50, "font_size": 1.2, "bold": True}, ...]
 
         Returns:
             Tuple of (generated_image, template_json_path, status_message)
@@ -741,6 +744,27 @@ class OMRSheetGenerator:
                 "customLabels": {},
                 "preProcessors": [],
             }
+
+            # Draw custom text fields if provided
+            if custom_texts:
+                for idx, text_field in enumerate(custom_texts):
+                    text = text_field.get("text", "")
+                    x = text_field.get("x", 100)
+                    y = text_field.get("y", 50)
+                    font_size = text_field.get("font_size", 1.0)
+                    bold = text_field.get("bold", False)
+
+                    # Draw text on image
+                    thickness = 2 if bold else 1
+                    cv2.putText(
+                        img,
+                        text,
+                        (x, y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        font_size,
+                        (0, 0, 0),
+                        thickness,
+                    )
 
             current_y = header_height
 
@@ -1457,6 +1481,25 @@ def create_gradio_interface():
                             outputs=[gen_qr_content],
                         )
 
+                        # Custom Text Fields
+                        with gr.Group():
+                            gr.Markdown("#### Custom Text (Optional)")
+                            gen_custom_text1 = gr.Textbox(
+                                label="Header Text Line 1",
+                                placeholder="e.g., Final Exam - Mathematics",
+                                value="",
+                            )
+                            gen_custom_text2 = gr.Textbox(
+                                label="Header Text Line 2",
+                                placeholder="e.g., Class: _____ Name: _____",
+                                value="",
+                            )
+                            gen_custom_text3 = gr.Textbox(
+                                label="Header Text Line 3",
+                                placeholder="e.g., Date: _____ Score: _____",
+                                value="",
+                            )
+
                         # Alignment markers
                         with gr.Group():
                             gr.Markdown("#### Alignment Markers")
@@ -1535,18 +1578,54 @@ def create_gradio_interface():
 
                 # Generate sheet button click
                 def generate_sheet_wrapper(
-                    num_q, q_type, num_cols, inc_mark, pw, ph, bs, inc_qr, qr_content
+                    num_q, q_type, num_cols, inc_mark, pw, ph, bs, inc_qr, qr_content,
+                    text1, text2, text3
                 ):
+                    # Build custom texts list
+                    custom_texts = []
+                    page_w = int(pw)
+                    page_h = int(ph)
+
+                    # Add custom text lines if provided
+                    y_start = 80  # Starting Y position for header text
+                    line_spacing = 60  # Spacing between lines
+
+                    if text1 and text1.strip():
+                        custom_texts.append({
+                            "text": text1,
+                            "x": page_w // 2 - len(text1) * 15,  # Center text approximately
+                            "y": y_start,
+                            "font_size": 1.2,
+                            "bold": True,
+                        })
+                    if text2 and text2.strip():
+                        custom_texts.append({
+                            "text": text2,
+                            "x": page_w // 2 - len(text2) * 12,
+                            "y": y_start + line_spacing,
+                            "font_size": 0.9,
+                            "bold": False,
+                        })
+                    if text3 and text3.strip():
+                        custom_texts.append({
+                            "text": text3,
+                            "x": page_w // 2 - len(text3) * 12,
+                            "y": y_start + line_spacing * 2,
+                            "font_size": 0.9,
+                            "bold": False,
+                        })
+
                     sheet_path, template_path, msg = sheet_generator.generate_sheet(
                         num_questions=int(num_q),
                         question_type=q_type,
                         num_columns=int(num_cols),
                         include_markers=inc_mark,
-                        page_width=int(pw),
-                        page_height=int(ph),
+                        page_width=page_w,
+                        page_height=page_h,
                         bubble_size=int(bs),
                         include_qr=inc_qr,
                         qr_content=qr_content or "",
+                        custom_texts=custom_texts if custom_texts else None,
                     )
                     return sheet_path, sheet_path, template_path, msg
 
@@ -1562,6 +1641,9 @@ def create_gradio_interface():
                         gen_bubble_size,
                         gen_include_qr,
                         gen_qr_content,
+                        gen_custom_text1,
+                        gen_custom_text2,
+                        gen_custom_text3,
                     ],
                     outputs=[
                         gen_sheet_image,
