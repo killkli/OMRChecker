@@ -8,6 +8,12 @@ import numpy as np
 
 import src.constants as constants
 from src.logger import logger
+
+try:
+    qr_detector = cv2.QRCodeDetector()
+except AttributeError:
+    logger.warning("OpenCV QRCodeDetector not available. Install OpenCV >= 4.5.0 for QR support.")
+    qr_detector = None
 from src.utils.image import CLAHE_HELPER, ImageUtils
 from src.utils.interaction import InteractionUtils
 
@@ -31,12 +37,19 @@ class ImageInstanceOps:
             tuning_config.dimensions.processing_height,
         )
 
+        self.transform_matrix = None
         # run pre_processors in sequence
         for pre_processor in template.pre_processors:
-            in_omr = pre_processor.apply_filter(in_omr, file_path)
+            result = pre_processor.apply_filter(in_omr, file_path)
+            if isinstance(result, tuple):
+                in_omr, transform_matrix = result
+                if hasattr(pre_processor, 'transform_matrix'):
+                    self.transform_matrix = pre_processor.transform_matrix
+            else:
+                in_omr = result
         return in_omr
 
-    def read_omr_response(self, template, image, name, save_dir=None):
+    def read_omr_response(self, template, image, raw_image, name, save_dir=None):
         config = self.tuning_config
         auto_align = config.alignment_params.auto_align
         try:
@@ -47,6 +60,33 @@ class ImageInstanceOps:
             )
             if img.max() > img.min():
                 img = ImageUtils.normalize_util(img)
+
+            if self.transform_matrix is not None:
+                logger.info("Transform matrix shape: %s", self.transform_matrix.shape)
+                logger.info("Applying perspective transform to template points using homography")
+                qr_origins_before = []
+                for fb in template.field_blocks:
+                    if fb.name == 'QR_Code' or fb.field_type == 'QTYPE_CUSTOM':
+                        qr_origins_before.append((fb.name, fb.origin.copy()))
+                    # Transform origin
+                    origin_pts = np.array([[[fb.origin[0], fb.origin[1]]]], dtype=np.float32)
+                    trans_origin = cv2.perspectiveTransform(origin_pts, self.transform_matrix)
+                    fb.origin = [int(trans_origin[0][0][0]), int(trans_origin[0][0][1])]
+
+                    # Transform bubble points
+                    for strip in fb.traverse_bubbles:
+                        for bubble in strip:
+                            pt = np.array([[[bubble.x, bubble.y]]], dtype=np.float32)
+                            trans_pt = cv2.perspectiveTransform(pt, self.transform_matrix)
+                            bubble.x = int(trans_pt[0][0][0])
+                            bubble.y = int(trans_pt[0][0][1])
+                logger.info("QR blocks before transform: %s", qr_origins_before)
+                for name, origin in qr_origins_before:
+                    # Find the QR field_block and log after
+                    for fb in template.field_blocks:
+                        if fb.name == name or (hasattr(fb, 'field_type') and fb.field_type == 'QTYPE_CUSTOM'):
+                            logger.info("QR block %s transformed origin: %s (was %s)", name, fb.origin, origin)
+
             # Processing copies
             transp_layer = img.copy()
             final_marked = img.copy()
@@ -258,6 +298,199 @@ class ImageInstanceOps:
 
             per_omr_threshold_avg, total_q_strip_no, total_q_box_no = 0, 0, 0
             for field_block in template.field_blocks:
+                # Check for QR block: no fieldType, single bubbleValue as placeholder
+                # Handle QR blocks: prioritize field_type=='QTYPE_CUSTOM', fallback to name=='QR_Code' with bubble_values
+                if hasattr(field_block, 'field_type') and field_block.field_type == "QTYPE_CUSTOM":
+                    # Handle QR code decoding
+                    if qr_detector is None:
+                        logger.warning("QR detector not available, skipping QR field")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = field_block.empty_val
+                        continue
+
+                    # Log QR block details
+                    logger.info(f"QR Block after transform: name={field_block.name}, origin={field_block.origin}, shift={getattr(field_block, 'shift', 0)}, bubble_dims={field_block.bubble_dimensions}")
+
+                    # Get QR region
+                    box_w, box_h = field_block.bubble_dimensions
+                    x, y = field_block.origin[0] + shift, field_block.origin[1]
+                    qr_size = max(box_w, box_h) * 50  # Even larger padding to cover full QR
+                    logger.info(f"Extracting QR region from warped img: x={x}, y={y}, qr_size={qr_size}")
+                    qr_region = img[max(0, y - qr_size//2):y + qr_size//2, max(0, x - qr_size//2):x + qr_size//2]
+                    logger.info(f"QR region: x={x}, y={y}, size={qr_size}, shape={qr_region.shape}, mean_intensity={np.mean(qr_region):.2f}")
+                    if qr_region.size == 0:
+                        qr_region = img[y:y+box_h, x:x+box_w]
+                        logger.warning(f"Fallback QR region shape: {qr_region.shape}, mean={np.mean(qr_region):.2f}")
+
+                    # Decode QR (convert to grayscale for better detection)
+                    if len(qr_region.shape) == 3:
+                        qr_gray = cv2.cvtColor(qr_region, cv2.COLOR_BGR2GRAY)
+                    else:
+                        qr_gray = qr_region
+
+                    logger.info(f"QR gray region shape: {qr_gray.shape}, dtype: {qr_gray.dtype}")
+
+                    # Try detectAndDecode (returns decoded_string, points, straight_qrcode)
+                    decoded_info, points, straight_qrcode = qr_detector.detectAndDecode(qr_gray)
+
+                    # Debug: log raw return values
+                    logger.info(f"QR detectAndDecode: decoded_info type={type(decoded_info)}, len={len(decoded_info) if isinstance(decoded_info, str) else 'N/A'}")
+                    logger.info(f"QR decoded_info content: {decoded_info[:100] if isinstance(decoded_info, str) and len(decoded_info) > 0 else decoded_info}")
+                    if points is not None and hasattr(points, 'shape'):
+                        logger.info(f"QR detector returned points with shape: {points.shape}, dtype: {points.dtype}")
+
+                    # Check if QR was successfully decoded (decoded_info should be a string)
+                    decoded_success = isinstance(decoded_info, str) and len(decoded_info) > 0
+
+                    if not decoded_success:
+                        logger.warning(f"QR detection failed or returned empty string. Region shape: {qr_region.shape}, mean: {np.mean(qr_region):.2f}")
+
+                    if decoded_success:
+                        decoded_data = str(decoded_info).strip()
+                        logger.info(f"QR decoded: {decoded_data}")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = decoded_data
+                        # Draw on final_marked - only if points are valid QR corners (4 points)
+                        if points is not None and points.size > 0:
+                            # QR detector should return 4 corner points with shape (1, 4, 2) or (4, 2)
+                            if points.shape == (1, 4, 2):
+                                # Already correct shape for cv2.polylines
+                                points_to_draw = points[0].reshape((-1, 1, 2)).astype(np.int32)
+                                # Adjust coordinates to full image (add offset from qr_region extraction)
+                                offset_x = max(0, x - qr_size//2)
+                                offset_y = max(0, y - qr_size//2)
+                                points_to_draw[:, :, 0] += offset_x
+                                points_to_draw[:, :, 1] += offset_y
+                                cv2.polylines(final_marked, [points_to_draw], True, constants.CLR_DARK_GRAY, 3)
+                                cv2.putText(final_marked, decoded_data[:10] + "...", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            elif points.shape == (4, 2):
+                                points_to_draw = points.reshape((-1, 1, 2)).astype(np.int32)
+                                offset_x = max(0, x - qr_size//2)
+                                offset_y = max(0, y - qr_size//2)
+                                points_to_draw[:, :, 0] += offset_x
+                                points_to_draw[:, :, 1] += offset_y
+                                cv2.polylines(final_marked, [points_to_draw], True, constants.CLR_DARK_GRAY, 3)
+                                cv2.putText(final_marked, decoded_data[:10] + "...", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            else:
+                                logger.warning(f"Unexpected QR points shape: {points.shape}, skipping drawing")
+                    else:
+                        logger.warning("No QR code detected")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = field_block.empty_val
+                    continue
+
+                elif len(field_block.bubble_values) == 1 and field_block.name == "QR_Code":
+                    # Fallback for no field_type QR block
+                    if qr_detector is None:
+                        logger.warning("QR detector not available, skipping QR field")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = field_block.empty_val
+                        continue
+
+                    # Get QR region
+                    box_w, box_h = field_block.bubble_dimensions
+                    shift = getattr(field_block, 'shift', 0)
+                    s = field_block.origin
+                    x, y = s[0] + shift, s[1]
+                    qr_size = max(box_w, box_h) * 20
+                    qr_region = img[max(0, y - qr_size//2):y + qr_size//2, max(0, x - qr_size//2):x + qr_size//2]
+                    if qr_region.size == 0:
+                        qr_region = img[y:y+box_h, x:x+box_w]
+
+                    # Decode QR (returns decoded_string, points, straight_qrcode)
+                    decoded_info, points, straight_qrcode = qr_detector.detectAndDecode(qr_region)
+                    logger.info(f"QR decoded_info: {decoded_info[:100] if isinstance(decoded_info, str) and len(decoded_info) > 0 else decoded_info}")
+                    if points is not None and hasattr(points, 'shape'):
+                        logger.info(f"QR detector returned points with shape: {points.shape}")
+                    # Check if QR was successfully decoded (should be non-empty string)
+                    decoded_success = isinstance(decoded_info, str) and len(decoded_info) > 0
+                    if decoded_success:
+                        decoded_data = str(decoded_info).strip()
+                        logger.info(f"QR decoded: {decoded_data}")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = decoded_data
+                        # Draw on final_marked - only if points are valid QR corners
+                        if points is not None and points.size > 0:
+                            if points.shape == (1, 4, 2):
+                                points_to_draw = points[0].reshape((-1, 1, 2)).astype(np.int32)
+                                offset_x = max(0, x - qr_size//2)
+                                offset_y = max(0, y - qr_size//2)
+                                points_to_draw[:, :, 0] += offset_x
+                                points_to_draw[:, :, 1] += offset_y
+                                cv2.polylines(final_marked, [points_to_draw], True, constants.CLR_DARK_GRAY, 3)
+                                cv2.putText(final_marked, decoded_data[:10] + "...", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            elif points.shape == (4, 2):
+                                points_to_draw = points.reshape((-1, 1, 2)).astype(np.int32)
+                                offset_x = max(0, x - qr_size//2)
+                                offset_y = max(0, y - qr_size//2)
+                                points_to_draw[:, :, 0] += offset_x
+                                points_to_draw[:, :, 1] += offset_y
+                                cv2.polylines(final_marked, [points_to_draw], True, constants.CLR_DARK_GRAY, 3)
+                                cv2.putText(final_marked, decoded_data[:10] + "...", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            else:
+                                logger.warning(f"Unexpected QR points shape: {points.shape}, skipping drawing")
+                    else:
+                        logger.warning("No QR code detected")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = field_block.empty_val
+                    continue
+
+                if hasattr(field_block, 'field_type') and field_block.field_type == "QTYPE_CUSTOM":
+                    # Handle QR code decoding
+                    if qr_detector is None:
+                        logger.warning("QR detector not available, skipping QR field")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = field_block.empty_val
+                        continue
+
+                    # Get QR region
+                    box_w, box_h = field_block.bubble_dimensions
+                    shift = getattr(field_block, 'shift', 0)
+                    s = field_block.origin
+                    x, y = s[0] + shift, s[1]
+                    qr_size = max(box_w, box_h) * 20
+                    qr_region = img[max(0, y - qr_size//2):y + qr_size//2, max(0, x - qr_size//2):x + qr_size//2]
+                    if qr_region.size == 0:
+                        qr_region = img[y:y+box_h, x:x+box_w]
+
+                    # Decode QR (returns decoded_string, points, straight_qrcode)
+                    decoded_info, points, straight_qrcode = qr_detector.detectAndDecode(qr_region)
+                    logger.info(f"QR decoded_info: {decoded_info[:100] if isinstance(decoded_info, str) and len(decoded_info) > 0 else decoded_info}")
+                    if points is not None and hasattr(points, 'shape'):
+                        logger.info(f"QR detector returned points with shape: {points.shape}")
+                    # Check if QR was successfully decoded (should be non-empty string)
+                    decoded_success = isinstance(decoded_info, str) and len(decoded_info) > 0
+                    if decoded_success:
+                        decoded_data = str(decoded_info).strip()
+                        logger.info(f"QR decoded: {decoded_data}")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = decoded_data
+                        # Draw on final_marked - only if points are valid QR corners
+                        if points is not None and points.size > 0:
+                            if points.shape == (1, 4, 2):
+                                points_to_draw = points[0].reshape((-1, 1, 2)).astype(np.int32)
+                                offset_x = max(0, x - qr_size//2)
+                                offset_y = max(0, y - qr_size//2)
+                                points_to_draw[:, :, 0] += offset_x
+                                points_to_draw[:, :, 1] += offset_y
+                                cv2.polylines(final_marked, [points_to_draw], True, constants.CLR_DARK_GRAY, 3)
+                                cv2.putText(final_marked, decoded_data[:10] + "...", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            elif points.shape == (4, 2):
+                                points_to_draw = points.reshape((-1, 1, 2)).astype(np.int32)
+                                offset_x = max(0, x - qr_size//2)
+                                offset_y = max(0, y - qr_size//2)
+                                points_to_draw[:, :, 0] += offset_x
+                                points_to_draw[:, :, 1] += offset_y
+                                cv2.polylines(final_marked, [points_to_draw], True, constants.CLR_DARK_GRAY, 3)
+                                cv2.putText(final_marked, decoded_data[:10] + "...", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            else:
+                                logger.warning(f"Unexpected QR points shape: {points.shape}, skipping drawing")
+                    else:
+                        logger.warning("No QR code detected")
+                        field_label = field_block.field_labels[0] if field_block.field_labels else "qr_id"
+                        omr_response[field_label] = field_block.empty_val
+                    continue
+
                 block_q_strip_no = 1
                 box_w, box_h = field_block.bubble_dimensions
                 shift = field_block.shift
