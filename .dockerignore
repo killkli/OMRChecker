@@ -54,8 +54,8 @@ inputs/*
 # CI/CD
 .pre-commit-config.yaml
 
-# Large files (download separately)
-fonts/*.ttf
-fonts/*.ttc
-fonts/*.otf
+# # Large files (download separately)
+# fonts/*.ttf
+# fonts/*.ttc
+# fonts/*.otf
 !fonts/README.md
