@@ -1,18 +1,25 @@
 from dataclasses import dataclass
 
 import cv2
-from screeninfo import get_monitors
 
 from src.logger import logger
 from src.utils.image import ImageUtils
 
-monitor_window = get_monitors()[0]
+# Try to get monitor info, fallback to default if running in headless environment
+try:
+    from screeninfo import get_monitors
+    monitor_window = get_monitors()[0]
+    DEFAULT_WIDTH, DEFAULT_HEIGHT = monitor_window.width, monitor_window.height
+except Exception as e:
+    logger.warning(f"Cannot detect display (headless environment): {e}")
+    logger.info("Using default window dimensions for headless mode")
+    DEFAULT_WIDTH, DEFAULT_HEIGHT = 1920, 1080  # Default resolution
 
 
 @dataclass
 class ImageMetrics:
     # TODO: Move TEXT_SIZE, etc here and find a better class name
-    window_width, window_height = monitor_window.width, monitor_window.height
+    window_width, window_height = DEFAULT_WIDTH, DEFAULT_HEIGHT
     # for positioning image windows
     window_x, window_y = 0, 0
     reset_pos = [0, 0]
