@@ -1024,7 +1024,7 @@ class OMRSheetGenerator:
 
             msg = f"✅ Generated OMR sheet successfully!\n"
             msg += f"Questions: {num_questions} ({question_type})\n"
-            msg += f"Layout: {num_columns} columns × {int(num_rows)} rows\n"
+            msg += f"Layout: {num_columns} columns × {int(questions_per_column)} rows per column\n"
             if include_markers:
                 msg += "Alignment markers: Yes\n"
             if include_qr:
