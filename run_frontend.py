@@ -8,11 +8,16 @@ Simple launcher script for the Gradio-based web interface.
 import sys
 from pathlib import Path
 
-# Add frontend directory to path
-frontend_dir = Path(__file__).parent / "frontend"
-sys.path.insert(0, str(frontend_dir))
+# Add project root to path to allow absolute imports
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
 
-from app import create_gradio_interface
+from batch_generate_sheets import BatchOMRGenerator
+from frontend.config.constants import config
+from frontend.core.processor import OMRProcessorGradio
+from frontend.core.sheet_generator import OMRSheetGenerator
+from frontend.core.template_builder import TemplateBuilder
+from frontend.ui.interface import create_gradio_interface
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -21,11 +26,23 @@ if __name__ == "__main__":
     print("\nStarting web interface...")
     print("Once started, open your browser to the URL shown below\n")
 
-    demo = create_gradio_interface()
+    # Initialize business logic instances
+    processor = OMRProcessorGradio()
+    template_builder = TemplateBuilder()
+    sheet_generator = OMRSheetGenerator()
+    batch_generator = BatchOMRGenerator()
+
+    # Create and launch the Gradio interface
+    demo = create_gradio_interface(
+        processor=processor,
+        template_builder=template_builder,
+        sheet_generator=sheet_generator,
+        batch_generator=batch_generator,
+    )
+
     demo.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        share=False,
-        show_error=True,
-        inbrowser=True,  # Automatically open browser
+        server_name=config.GRADIO_SERVER_NAME,
+        server_port=config.GRADIO_SERVER_PORT,
+        share=config.GRADIO_SHARE,
+        show_error=config.GRADIO_SHOW_ERROR,
     )
