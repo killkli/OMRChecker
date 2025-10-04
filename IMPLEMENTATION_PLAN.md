@@ -23,15 +23,21 @@ Refactor `frontend/app.py` (2090 lines) to improve maintainability, testability,
 **Tests**:
 - Verify all original hardcoded values are now in config
 - Ensure app runs with same behavior as before
-**Status**: Not Started
+**Status**: Complete
 
 ### Tasks:
-- [ ] Create `frontend/config/constants.py` for all constant values
-- [ ] Define page dimensions, bubble sizes, margins, spacing defaults
-- [ ] Define font paths and sizes
-- [ ] Create `Config` class to load and access configuration
-- [ ] Replace all hardcoded values in app.py with config references
-- [ ] Test that application behavior is unchanged
+- [x] Create `frontend/config/constants.py` for all constant values
+- [x] Define page dimensions, bubble sizes, margins, spacing defaults
+- [x] Define font paths and sizes
+- [x] Create `Config` class to load and access configuration
+- [x] Replace all hardcoded values in app.py with config references
+- [x] Test that application behavior is unchanged
+
+### Completion Notes:
+- Created `frontend/config/constants.py` with 77+ configuration constants
+- All hardcoded values extracted and organized into logical groups
+- Application tested and verified to run with identical behavior
+- Git commit: 23111b0 "refactor: Extract hardcoded constants to centralized config module (Stage 1)"
 
 ---
 
@@ -45,16 +51,23 @@ Refactor `frontend/app.py` (2090 lines) to improve maintainability, testability,
 - Unit tests for marker generation
 - Unit tests for text rendering utilities
 - Unit tests for coordinate calculations
-**Status**: Not Started
+**Status**: Complete
 
 ### Tasks:
-- [ ] Create `frontend/utils/marker_utils.py` for marker generation
-- [ ] Create `frontend/utils/text_utils.py` for text rendering
-- [ ] Create `frontend/utils/coordinate_utils.py` for coordinate calculations
-- [ ] Extract duplicate marker generation logic into single function
-- [ ] Extract duplicate custom text handling into utilities
-- [ ] Replace all duplicated code with utility function calls
-- [ ] Write unit tests for all utility functions
+- [x] Create `frontend/utils/marker_utils.py` for marker generation
+- [x] Create `frontend/utils/text_utils.py` for text rendering
+- [x] Create `frontend/utils/coordinate_utils.py` for coordinate calculations
+- [x] Extract duplicate marker generation logic into single function
+- [x] Extract duplicate custom text handling into utilities
+- [x] Replace all duplicated code with utility function calls
+- [x] Write unit tests for all utility functions
+
+### Completion Notes:
+- Created `frontend/utils/marker_utils.py`, `text_utils.py`, `coordinate_utils.py`.
+- Extracted duplicate marker generation, text rendering, and coordinate calculation logic.
+- Updated `frontend/app.py` to use these new utility functions.
+- Created `frontend/tests/test_utils.py` with unit tests for the new utilities.
+- Git commit: 5519244 "refactor: Extract shared utilities (Stage 2)"
 
 ---
 
@@ -68,16 +81,27 @@ Refactor `frontend/app.py` (2090 lines) to improve maintainability, testability,
 - Unit tests for OMRProcessor
 - Unit tests for TemplateBuilder
 - Unit tests for SheetGenerator
-**Status**: Not Started
+**Status**: Complete
 
 ### Tasks:
-- [ ] Create `frontend/core/` directory
-- [ ] Move `OMRProcessorGradio` to `frontend/core/processor.py`
-- [ ] Move `TemplateBuilder` to `frontend/core/template_builder.py`
-- [ ] Move `OMRSheetGenerator` to `frontend/core/sheet_generator.py`
-- [ ] Refactor each class to use config and utilities
-- [ ] Update imports in app.py
-- [ ] Write unit tests for each core class
+- [x] Create `frontend/core/` directory
+- [x] Move `OMRProcessorGradio` to `frontend/core/processor.py`
+- [x] Move `TemplateBuilder` to `frontend/core/template_builder.py`
+- [x] Move `OMRSheetGenerator` to `frontend/core/sheet_generator.py`
+- [x] Refactor each class to use config and utilities
+- [x] Update imports in app.py
+- [x] Write unit tests for each core class
+
+### Completion Notes:
+- Created `frontend/core/` directory with three core modules
+- Moved `OMRProcessorGradio` to `frontend/core/processor.py`
+- Moved `TemplateBuilder` to `frontend/core/template_builder.py`
+- Moved `OMRSheetGenerator` to `frontend/core/sheet_generator.py`
+- Updated `frontend/app.py` to import from core modules
+- Removed class definitions from `frontend/app.py` (reduced from 1947 to 1029 lines)
+- Created `frontend/tests/test_core.py` with 13 unit tests (all passing)
+- All imports verified successfully
+- No circular dependencies detected
 
 ---
 
