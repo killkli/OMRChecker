@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y \
 # 安裝 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# 複製專案配置檔案
-COPY pyproject.toml .python-version ./
+# 複製專案配置檔案（包含 README.md，pyproject.toml 需要）
+COPY pyproject.toml .python-version README.md ./
 COPY uv.lock ./
 
 # 安裝 Python 依賴（使用 uv）
