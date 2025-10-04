@@ -31,6 +31,9 @@ from src.template import Template
 from src.utils.parsing import open_config_with_defaults
 from batch_generate_sheets import BatchOMRGenerator
 from frontend.config.constants import config
+from frontend.utils.marker_utils import generate_concentric_circle_marker
+from frontend.utils.text_utils import calculate_text_positioning, calculate_max_text_y
+from frontend.utils.coordinate_utils import calculate_coordinate_system
 
 
 class OMRProcessorGradio:
@@ -145,16 +148,8 @@ class OMRProcessorGradio:
                             page_width = page_dims[0]
                             marker_size = int(page_width * config.MARKER_SIZE_RATIO)
 
-                            # Generate concentric circles marker (black-white-black)
-                            marker_img = np.ones((marker_size, marker_size, 3), dtype=np.uint8) * 255
-                            center = marker_size // 2
-
-                            # Outer circle (black)
-                            cv2.circle(marker_img, (center, center), marker_size // 2, config.COLOR_BLACK, -1)
-                            # Middle circle (white)
-                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_MIDDLE_CIRCLE_RATIO), config.COLOR_WHITE, -1)
-                            # Inner circle (black)
-                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_INNER_CIRCLE_RATIO), config.COLOR_BLACK, -1)
+                            # Generate concentric circles marker using utility function
+                            marker_img = generate_concentric_circle_marker(marker_size, config)
 
                             cv2.imwrite(str(marker_dest_file), marker_img)
                             logger.info(f"✅ Generated marker at: {marker_dest_file} (size: {marker_size}x{marker_size})")
@@ -670,73 +665,26 @@ class OMRSheetGenerator:
             else:
                 row_gap = num_options * bubble_gap + config.ROW_GAP_VERTICAL
 
-            # Calculate coordinate space based on whether markers are used
-            if include_markers:
-                # Marker size is 1/10 of page width (approximately A4 width ratio)
-                marker_size = int(page_width * config.MARKER_SIZE_RATIO)
+            # Calculate coordinate system using utility function
+            coord_system = calculate_coordinate_system(
+                page_width, page_height, include_markers, config
+            )
+            template_width = coord_system["template_width"]
+            template_height = coord_system["template_height"]
+            coord_offset_x = coord_system["coord_offset_x"]
+            coord_offset_y = coord_system["coord_offset_y"]
+            marker_positions = coord_system["marker_positions"]
+            marker_size = coord_system["marker_size"]
 
-                # Markers will be placed near page corners with fixed edge spacing
-                edge_spacing = config.MARKER_EDGE_SPACING
-                marker_positions = [
-                    (edge_spacing, edge_spacing),  # Top-left
-                    (page_width - edge_spacing - marker_size, edge_spacing),  # Top-right
-                    (edge_spacing, page_height - edge_spacing - marker_size),  # Bottom-left
-                    (
-                        page_width - edge_spacing - marker_size,
-                        page_height - edge_spacing - marker_size,
-                    ),  # Bottom-right
-                ]
-
-                # Calculate marker centers
-                marker_centers = [
-                    (x + marker_size // 2, y + marker_size // 2)
-                    for x, y in marker_positions
-                ]
-
-                # pageDimensions = distance between marker centers
-                # This ensures no scaling after four_point_transform
-                template_width = marker_centers[1][0] - marker_centers[0][0]
-                template_height = marker_centers[2][1] - marker_centers[0][1]
-
-                # Coordinate offset: all content coordinates are relative to top-left marker center
-                coord_offset_x = marker_centers[0][0]
-                coord_offset_y = marker_centers[0][1]
-
-                # Draw concentric circle markers on the image (3 circles: black-white-black)
+            # Draw markers on the image if included
+            if include_markers and marker_positions:
                 for x, y in marker_positions:
                     center_x = x + marker_size // 2
                     center_y = y + marker_size // 2
 
-                    # Outer circle (black)
-                    cv2.circle(
-                        img,
-                        (center_x, center_y),
-                        marker_size // 2,
-                        config.COLOR_BLACK,
-                        -1,  # filled
-                    )
-                    # Middle circle (white)
-                    cv2.circle(
-                        img,
-                        (center_x, center_y),
-                        int(marker_size // 2 * config.MARKER_MIDDLE_CIRCLE_RATIO),
-                        config.COLOR_WHITE,
-                        -1,  # filled
-                    )
-                    # Inner circle (black)
-                    cv2.circle(
-                        img,
-                        (center_x, center_y),
-                        int(marker_size // 2 * config.MARKER_INNER_CIRCLE_RATIO),
-                        config.COLOR_BLACK,
-                        -1,  # filled
-                    )
-            else:
-                # No markers: pageDimensions = full page size, no offset
-                template_width = page_width
-                template_height = page_height
-                coord_offset_x = 0
-                coord_offset_y = 0
+                    # Generate marker and paste onto image at marker position
+                    marker_img = generate_concentric_circle_marker(marker_size, config)
+                    img[y:y+marker_size, x:x+marker_size] = marker_img
 
             # Initialize template data with calculated dimensions
             self.template_data = {
@@ -769,7 +717,7 @@ class OMRSheetGenerator:
                     logger.warning(f"Font loading error: {e}")
                     font_path = None
 
-                for idx, text_field in enumerate(custom_texts):
+                for text_field in custom_texts:
                     text = text_field.get("text", "")
                     x = text_field.get("x", 100)
                     y = text_field.get("y", 50)
@@ -801,15 +749,7 @@ class OMRSheetGenerator:
                 img = np.array(pil_img)
 
                 # Calculate the maximum Y position used by custom texts
-                # Questions should start below all custom text content
-                max_text_y = 0
-                for text_field in custom_texts:
-                    y = text_field.get("y", config.TEXT_SAFE_MARGIN)
-                    font_size_scale = text_field.get("font_size", 1.0)
-                    actual_font_size = int(config.BASE_FONT_SIZE * font_size_scale)
-                    # Approximate text height (font size + padding)
-                    text_bottom = y + actual_font_size + config.TEXT_BOTTOM_PADDING
-                    max_text_y = max(max_text_y, text_bottom)
+                max_text_y = calculate_max_text_y(custom_texts, config)
 
                 # Questions start below all custom text + extra spacing
                 current_y = max(header_height, max_text_y + config.CUSTOM_TEXT_SPACING)
@@ -962,21 +902,11 @@ class OMRSheetGenerator:
 
             # Add preprocessors if markers are included
             if include_markers:
-                # Save marker image with concentric circles design
+                # Save marker image using utility function
                 marker_temp = tempfile.NamedTemporaryFile(
                     suffix=".jpg", delete=False, mode="wb"
                 )
-                # White background
-                marker_img = np.ones((marker_size, marker_size, 3), dtype=np.uint8) * 255
-
-                center = marker_size // 2
-                # Outer circle (black)
-                cv2.circle(marker_img, (center, center), marker_size // 2, config.COLOR_BLACK, -1)
-                # Middle circle (white)
-                cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_MIDDLE_CIRCLE_RATIO), config.COLOR_WHITE, -1)
-                # Inner circle (black)
-                cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_INNER_CIRCLE_RATIO), config.COLOR_BLACK, -1)
-
+                marker_img = generate_concentric_circle_marker(marker_size, config)
                 cv2.imwrite(marker_temp.name, marker_img)
                 marker_temp.close()
 
@@ -1636,48 +1566,15 @@ def create_gradio_interface():
                     num_q, q_type, num_cols, inc_mark, pw, ph, bs, inc_qr, qr_content,
                     text1, text2, text3
                 ):
-                    # Build custom texts list
-                    custom_texts = []
+                    # Build text lines list (filter empty strings)
                     page_w = int(pw)
                     page_h = int(ph)
+                    text_lines = [t for t in [text1, text2, text3] if t and t.strip()]
 
-                    # Calculate safe text positioning (avoid markers)
-                    # Markers are at 10% of page width, so start text after marker + margin
-                    marker_size = int(page_w * config.MARKER_SIZE_RATIO) if inc_mark else 0
-                    safe_margin_left = marker_size + config.TEXT_SAFE_MARGIN_WITH_MARKER if inc_mark else config.TEXT_SAFE_MARGIN
-                    safe_y_start = marker_size + config.CUSTOM_TEXT_SPACING if inc_mark else config.TEXT_SAFE_MARGIN  # Start below marker
-
-                    # Add custom text lines if provided (center-aligned)
-                    line_spacing = config.TEXT_LINE_SPACING
-
-                    if text1 and text1.strip():
-                        # Approximate character width (works for both English and Chinese)
-                        text_width = len(text1) * config.CHAR_WIDTH_LARGE
-                        custom_texts.append({
-                            "text": text1,
-                            "x": max(safe_margin_left, page_w // 2 - text_width // 2),
-                            "y": safe_y_start,
-                            "font_size": 1.5,  # Larger for header
-                            "bold": True,
-                        })
-                    if text2 and text2.strip():
-                        text_width = len(text2) * config.CHAR_WIDTH_NORMAL
-                        custom_texts.append({
-                            "text": text2,
-                            "x": max(safe_margin_left, page_w // 2 - text_width // 2),
-                            "y": safe_y_start + line_spacing,
-                            "font_size": 1.0,
-                            "bold": False,
-                        })
-                    if text3 and text3.strip():
-                        text_width = len(text3) * config.CHAR_WIDTH_NORMAL
-                        custom_texts.append({
-                            "text": text3,
-                            "x": max(safe_margin_left, page_w // 2 - text_width // 2),
-                            "y": safe_y_start + line_spacing * 2,
-                            "font_size": 1.0,
-                            "bold": False,
-                        })
+                    # Calculate text positioning using utility function
+                    custom_texts = calculate_text_positioning(
+                        text_lines, page_w, inc_mark, config
+                    )
 
                     sheet_path, template_path, msg = sheet_generator.generate_sheet(
                         num_questions=int(num_q),
@@ -1944,43 +1841,14 @@ def create_gradio_interface():
                         # Create temporary output directory
                         temp_output = tempfile.mkdtemp(prefix="batch_omr_")
 
-                        # Build custom texts list with safe positioning
-                        custom_texts = []
+                        # Build text lines list (filter empty strings)
                         page_w = int(pw)
+                        text_lines = [t for t in [text1, text2, text3] if t and t.strip()]
 
-                        # Calculate safe positioning
-                        marker_size = int(page_w * config.MARKER_SIZE_RATIO) if inc_mark else 0
-                        safe_margin_left = marker_size + config.TEXT_SAFE_MARGIN_WITH_MARKER if inc_mark else config.TEXT_SAFE_MARGIN
-                        safe_y_start = marker_size + config.CUSTOM_TEXT_SPACING if inc_mark else config.TEXT_SAFE_MARGIN
-                        line_spacing = config.TEXT_LINE_SPACING
-
-                        if text1 and text1.strip():
-                            text_width = len(text1) * config.CHAR_WIDTH_LARGE
-                            custom_texts.append({
-                                "text": text1,
-                                "x": max(safe_margin_left, page_w // 2 - text_width // 2),
-                                "y": safe_y_start,
-                                "font_size": 1.5,
-                                "bold": True,
-                            })
-                        if text2 and text2.strip():
-                            text_width = len(text2) * config.CHAR_WIDTH_NORMAL
-                            custom_texts.append({
-                                "text": text2,
-                                "x": max(safe_margin_left, page_w // 2 - text_width // 2),
-                                "y": safe_y_start + line_spacing,
-                                "font_size": 1.0,
-                                "bold": False,
-                            })
-                        if text3 and text3.strip():
-                            text_width = len(text3) * config.CHAR_WIDTH_NORMAL
-                            custom_texts.append({
-                                "text": text3,
-                                "x": max(safe_margin_left, page_w // 2 - text_width // 2),
-                                "y": safe_y_start + line_spacing * 2,
-                                "font_size": 1.0,
-                                "bold": False,
-                            })
+                        # Calculate text positioning using utility function
+                        custom_texts = calculate_text_positioning(
+                            text_lines, page_w, inc_mark, config
+                        )
 
                         # Generate batch
                         success, failed = batch_generator.generate_batch(
