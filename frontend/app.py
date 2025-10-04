@@ -392,7 +392,7 @@ def create_gradio_interface():
                 # Image click to get coordinates
                 ref_image_display.select(
                     fn=template_builder.get_coordinates_from_click,
-                    inputs=[],  # Gradio auto-passes SelectData
+                    inputs=None,  # Gradio auto-passes SelectData
                     outputs=[selected_x, selected_y, click_coords_output],
                 )
 
