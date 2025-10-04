@@ -30,6 +30,7 @@ from src.logger import logger
 from src.template import Template
 from src.utils.parsing import open_config_with_defaults
 from batch_generate_sheets import BatchOMRGenerator
+from frontend.config.constants import config
 
 
 class OMRProcessorGradio:
@@ -140,20 +141,20 @@ class OMRProcessorGradio:
                         elif not marker_dest_file.exists():
                             logger.info(f"Auto-generating missing marker: {marker_path}")
                             # Get page dimensions from template to calculate marker size (1/10 of page width)
-                            page_dims = template_data.get("pageDimensions", [2100, 2970])
+                            page_dims = template_data.get("pageDimensions", [config.GENERATOR_PAGE_WIDTH, config.GENERATOR_PAGE_HEIGHT])
                             page_width = page_dims[0]
-                            marker_size = int(page_width * 0.1)
+                            marker_size = int(page_width * config.MARKER_SIZE_RATIO)
 
                             # Generate concentric circles marker (black-white-black)
                             marker_img = np.ones((marker_size, marker_size, 3), dtype=np.uint8) * 255
                             center = marker_size // 2
 
                             # Outer circle (black)
-                            cv2.circle(marker_img, (center, center), marker_size // 2, (0, 0, 0), -1)
+                            cv2.circle(marker_img, (center, center), marker_size // 2, config.COLOR_BLACK, -1)
                             # Middle circle (white)
-                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.7), (255, 255, 255), -1)
+                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_MIDDLE_CIRCLE_RATIO), config.COLOR_WHITE, -1)
                             # Inner circle (black)
-                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.4), (0, 0, 0), -1)
+                            cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_INNER_CIRCLE_RATIO), config.COLOR_BLACK, -1)
 
                             cv2.imwrite(str(marker_dest_file), marker_img)
                             logger.info(f"✅ Generated marker at: {marker_dest_file} (size: {marker_size}x{marker_size})")
@@ -237,8 +238,8 @@ class TemplateBuilder:
     def __init__(self):
         self.reference_image = None
         self.template_data = {
-            "pageDimensions": [1846, 1500],
-            "bubbleDimensions": [40, 40],
+            "pageDimensions": [config.DEFAULT_PAGE_WIDTH, config.DEFAULT_PAGE_HEIGHT],
+            "bubbleDimensions": [config.DEFAULT_BUBBLE_WIDTH, config.DEFAULT_BUBBLE_HEIGHT],
             "fieldBlocks": {},
             "customLabels": {},
             "preProcessors": [],
@@ -510,8 +511,8 @@ class TemplateBuilder:
                             img,
                             (int(x), int(y)),
                             (int(x + bubble_dims[0]), int(y + bubble_dims[1])),
-                            (0, 255, 0),
-                            2,
+                            config.COLOR_GREEN,
+                            config.CV2_BUBBLE_BORDER_THICKNESS,
                         )
 
                 # Add block name label
@@ -519,10 +520,10 @@ class TemplateBuilder:
                     img,
                     block_name,
                     (origin[0], origin[1] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 0, 0),
-                    2,
+                    config.CV2_FONT_FACE,
+                    config.CV2_BLOCK_NAME_FONT_SCALE,
+                    config.COLOR_RED,
+                    config.CV2_BLOCK_NAME_FONT_THICKNESS,
                 )
 
             return img, "Template visualized successfully"
@@ -633,16 +634,16 @@ class OMRSheetGenerator:
 
             # Calculate marker size first (if markers are included)
             if include_markers:
-                marker_size = int(page_width * 0.1)
+                marker_size = int(page_width * config.MARKER_SIZE_RATIO)
                 # Margin must be larger than marker to avoid overlap
-                margin = marker_size + 30  # Extra 30px spacing
-                header_height = marker_size + 40  # Start content below markers
+                margin = marker_size + config.MARKER_EXTRA_SPACING
+                header_height = marker_size + config.MARKER_HEADER_HEIGHT
             else:
                 marker_size = 0
-                margin = 80
-                header_height = 120
+                margin = config.DEFAULT_MARGIN
+                header_height = config.DEFAULT_HEADER_HEIGHT
 
-            bubble_gap = bubble_size + 8
+            bubble_gap = bubble_size + config.DEFAULT_BUBBLE_GAP
 
             # Calculate available width for questions
             available_width = page_width - 2 * margin
@@ -650,32 +651,32 @@ class OMRSheetGenerator:
             # Calculate question block width based on direction
             if default_direction == "horizontal":
                 # For horizontal bubbles: question needs space for all options
-                single_question_width = num_options * bubble_gap + 40  # 40 for Q label
+                single_question_width = num_options * bubble_gap + config.QUESTION_BLOCK_PADDING_HORIZONTAL
             else:
                 # For vertical bubbles: question needs space for one bubble width + label
-                single_question_width = bubble_gap + 60  # 60 for Q label and value labels
+                single_question_width = bubble_gap + config.QUESTION_BLOCK_PADDING_VERTICAL
 
             # Calculate spacing between columns
             total_questions_width = num_columns * single_question_width
             if num_columns > 1:
                 column_gap = (available_width - total_questions_width) // (num_columns - 1)
-                column_gap = max(20, min(column_gap, 50))  # Clamp between 20-50
+                column_gap = max(config.COLUMN_GAP_MIN, min(column_gap, config.COLUMN_GAP_MAX))
             else:
                 column_gap = 0
 
             # Row gap based on question type
             if default_direction == "horizontal":
-                row_gap = bubble_size + 30
+                row_gap = bubble_size + config.ROW_GAP_HORIZONTAL
             else:
-                row_gap = num_options * bubble_gap + 40
+                row_gap = num_options * bubble_gap + config.ROW_GAP_VERTICAL
 
             # Calculate coordinate space based on whether markers are used
             if include_markers:
                 # Marker size is 1/10 of page width (approximately A4 width ratio)
-                marker_size = int(page_width * 0.1)
+                marker_size = int(page_width * config.MARKER_SIZE_RATIO)
 
                 # Markers will be placed near page corners with fixed edge spacing
-                edge_spacing = 20  # Fixed distance from page edge
+                edge_spacing = config.MARKER_EDGE_SPACING
                 marker_positions = [
                     (edge_spacing, edge_spacing),  # Top-left
                     (page_width - edge_spacing - marker_size, edge_spacing),  # Top-right
@@ -711,23 +712,23 @@ class OMRSheetGenerator:
                         img,
                         (center_x, center_y),
                         marker_size // 2,
-                        (0, 0, 0),
+                        config.COLOR_BLACK,
                         -1,  # filled
                     )
                     # Middle circle (white)
                     cv2.circle(
                         img,
                         (center_x, center_y),
-                        int(marker_size // 2 * 0.7),
-                        (255, 255, 255),
+                        int(marker_size // 2 * config.MARKER_MIDDLE_CIRCLE_RATIO),
+                        config.COLOR_WHITE,
                         -1,  # filled
                     )
                     # Inner circle (black)
                     cv2.circle(
                         img,
                         (center_x, center_y),
-                        int(marker_size // 2 * 0.4),
-                        (0, 0, 0),
+                        int(marker_size // 2 * config.MARKER_INNER_CIRCLE_RATIO),
+                        config.COLOR_BLACK,
                         -1,  # filled
                     )
             else:
@@ -754,18 +755,7 @@ class OMRSheetGenerator:
 
                 # Try to load Chinese font from project directory, fallback to system fonts
                 try:
-                    # Get project root directory
-                    project_root = Path(__file__).parent.parent
-                    project_font = project_root / "fonts" / "TW-Kai.ttf"
-
-                    # Try fonts in order of preference
-                    font_paths = [
-                        str(project_font),  # Project bundled font (TW Kai - 台灣標楷體)
-                        "/Users/johnchen/Library/Fonts/edukai-4.0.ttf",  # 標楷體
-                        "/System/Library/Fonts/Supplemental/Songti.ttc",  # 宋體
-                        "/System/Library/Fonts/STHeiti Medium.ttc",  # 黑體
-                        "/System/Library/Fonts/Supplemental/Arial.ttf",  # Arial (fallback)
-                    ]
+                    font_paths = config.get_font_paths()
                     font_path = None
                     for path in font_paths:
                         if os.path.exists(path):
@@ -787,7 +777,7 @@ class OMRSheetGenerator:
                     bold = text_field.get("bold", False)
 
                     # Calculate actual font size in pixels (larger for better readability)
-                    actual_font_size = int(30 * font_size_scale)  # Base size 30px
+                    actual_font_size = int(config.BASE_FONT_SIZE * font_size_scale)
 
                     # Load font
                     try:
@@ -799,13 +789,13 @@ class OMRSheetGenerator:
                         font = ImageFont.load_default()
 
                     # Draw text with PIL (supports Chinese)
-                    draw.text((x, y), text, font=font, fill=(0, 0, 0))
+                    draw.text((x, y), text, font=font, fill=config.COLOR_BLACK)
 
                     # If bold, draw again with slight offset for thickness
                     if bold:
-                        draw.text((x+1, y), text, font=font, fill=(0, 0, 0))
-                        draw.text((x, y+1), text, font=font, fill=(0, 0, 0))
-                        draw.text((x+1, y+1), text, font=font, fill=(0, 0, 0))
+                        draw.text((x+config.BOLD_OFFSET_X, y), text, font=font, fill=config.COLOR_BLACK)
+                        draw.text((x, y+config.BOLD_OFFSET_Y), text, font=font, fill=config.COLOR_BLACK)
+                        draw.text((x+config.BOLD_OFFSET_X, y+config.BOLD_OFFSET_Y), text, font=font, fill=config.COLOR_BLACK)
 
                 # Convert back to numpy array
                 img = np.array(pil_img)
@@ -814,15 +804,15 @@ class OMRSheetGenerator:
                 # Questions should start below all custom text content
                 max_text_y = 0
                 for text_field in custom_texts:
-                    y = text_field.get("y", 50)
+                    y = text_field.get("y", config.TEXT_SAFE_MARGIN)
                     font_size_scale = text_field.get("font_size", 1.0)
-                    actual_font_size = int(30 * font_size_scale)
+                    actual_font_size = int(config.BASE_FONT_SIZE * font_size_scale)
                     # Approximate text height (font size + padding)
-                    text_bottom = y + actual_font_size + 10
+                    text_bottom = y + actual_font_size + config.TEXT_BOTTOM_PADDING
                     max_text_y = max(max_text_y, text_bottom)
 
                 # Questions start below all custom text + extra spacing
-                current_y = max(header_height, max_text_y + 60)  # 60px spacing after last text
+                current_y = max(header_height, max_text_y + config.CUSTOM_TEXT_SPACING)
             else:
                 # No custom text, use default header height
                 current_y = header_height
@@ -858,11 +848,11 @@ class OMRSheetGenerator:
                     cv2.putText(
                         img,
                         f"Q{questions_drawn + 1}",
-                        (block_x - 35, block_y + bubble_size // 2 + 5),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.55,
-                        (0, 0, 0),
-                        2,
+                        (block_x + config.QUESTION_LABEL_OFFSET_X, block_y + bubble_size // 2 + config.QUESTION_LABEL_OFFSET_Y),
+                        config.CV2_FONT_FACE,
+                        config.CV2_QUESTION_FONT_SCALE,
+                        config.COLOR_BLACK,
+                        config.CV2_QUESTION_FONT_THICKNESS,
                     )
 
                     # Draw bubbles based on direction
@@ -879,26 +869,26 @@ class OMRSheetGenerator:
                             img,
                             (bubble_x + bubble_size // 2, bubble_y + bubble_size // 2),
                             bubble_size // 2,
-                            (0, 0, 0),
-                            2,
+                            config.COLOR_BLACK,
+                            config.CV2_BUBBLE_BORDER_THICKNESS,
                         )
 
                         # Draw option label
                         if default_direction == "horizontal":
-                            label_x = bubble_x + bubble_size // 2 - 8
-                            label_y = bubble_y - 10
+                            label_x = bubble_x + bubble_size // 2 + config.BUBBLE_LABEL_OFFSET_X_HORIZONTAL
+                            label_y = bubble_y + config.BUBBLE_LABEL_OFFSET_Y_HORIZONTAL
                         else:
-                            label_x = bubble_x + bubble_size + 10
-                            label_y = bubble_y + bubble_size // 2 + 5
+                            label_x = bubble_x + bubble_size + config.BUBBLE_LABEL_OFFSET_X_VERTICAL
+                            label_y = bubble_y + bubble_size // 2 + config.BUBBLE_LABEL_OFFSET_Y_VERTICAL
 
                         cv2.putText(
                             img,
                             str(opt_value),
                             (label_x, label_y),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5,
-                            (0, 0, 0),
-                            1,
+                            config.CV2_FONT_FACE,
+                            config.CV2_BUBBLE_LABEL_FONT_SCALE,
+                            config.COLOR_BLACK,
+                            config.CV2_BUBBLE_LABEL_FONT_THICKNESS,
                         )
 
                     # Add to template (coordinates relative to pageDimensions)
@@ -921,16 +911,16 @@ class OMRSheetGenerator:
             # Add QR Code if requested
             msg = ''  # Initialize msg for QR block
             if include_qr and qr_content:
-                qr_size = max(200, bubble_size * 5)  # QR size based on bubble, min 200px
+                qr_size = max(config.QR_SIZE_MIN, bubble_size * config.QR_SIZE_BUBBLE_MULTIPLIER)
                 qr_x = page_width - margin - qr_size
                 qr_y = page_height - margin - qr_size
 
                 # Generate QR Code
                 qr = qrcode.QRCode(
-                    version=1,
+                    version=config.QR_VERSION,
                     error_correction=qrcode.constants.ERROR_CORRECT_L,
-                    box_size=10,
-                    border=4,
+                    box_size=config.QR_BOX_SIZE,
+                    border=config.QR_BORDER_SIZE,
                 )
                 qr.add_data(qr_content)
                 qr.make(fit=True)
@@ -981,11 +971,11 @@ class OMRSheetGenerator:
 
                 center = marker_size // 2
                 # Outer circle (black)
-                cv2.circle(marker_img, (center, center), marker_size // 2, (0, 0, 0), -1)
+                cv2.circle(marker_img, (center, center), marker_size // 2, config.COLOR_BLACK, -1)
                 # Middle circle (white)
-                cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.7), (255, 255, 255), -1)
+                cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_MIDDLE_CIRCLE_RATIO), config.COLOR_WHITE, -1)
                 # Inner circle (black)
-                cv2.circle(marker_img, (center, center), int(marker_size // 2 * 0.4), (0, 0, 0), -1)
+                cv2.circle(marker_img, (center, center), int(marker_size // 2 * config.MARKER_INNER_CIRCLE_RATIO), config.COLOR_BLACK, -1)
 
                 cv2.imwrite(marker_temp.name, marker_img)
                 marker_temp.close()
@@ -996,13 +986,13 @@ class OMRSheetGenerator:
                     {
                         "name": "CropOnMarkers",
                         "options": {
-                            "relativePath": "omr_marker.jpg",
+                            "relativePath": config.MARKER_FILENAME,
                             "sheetToMarkerWidthRatio": page_width // marker_size,
                             # Wider range for photos (60-130%) with lower threshold
-                            "marker_rescale_range": [60, 130],
-                            "marker_rescale_steps": 15,
-                            "min_matching_threshold": 0.2,
-                            "max_matching_variation": 0.5,
+                            "marker_rescale_range": [config.MARKER_RESCALE_RANGE_MIN, config.MARKER_RESCALE_RANGE_MAX],
+                            "marker_rescale_steps": config.MARKER_RESCALE_STEPS,
+                            "min_matching_threshold": config.MARKER_MIN_MATCHING_THRESHOLD,
+                            "max_matching_variation": config.MARKER_MAX_MATCHING_VARIATION,
                         },
                     },
                 ]
@@ -1161,7 +1151,7 @@ def create_gradio_interface():
                         with gr.Accordion("處理記錄", open=False):
                             log_output = gr.Textbox(
                                 label="詳細記錄",
-                                lines=10,
+                                lines=config.DEFAULT_LOG_LINES,
                                 interactive=False,
                             )
 
@@ -1215,13 +1205,13 @@ def create_gradio_interface():
                         # Step 2: Basic Settings
                         gr.Markdown("### 2️⃣ 基本設定")
                         with gr.Row():
-                            page_width = gr.Number(label="頁面寬度", value=1846)
-                            page_height = gr.Number(label="頁面高度", value=1500)
+                            page_width = gr.Number(label="頁面寬度", value=config.DEFAULT_PAGE_WIDTH)
+                            page_height = gr.Number(label="頁面高度", value=config.DEFAULT_PAGE_HEIGHT)
                         update_page_btn = gr.Button("更新頁面尺寸", size="sm")
 
                         with gr.Row():
-                            bubble_width = gr.Number(label="預設圓圈寬度", value=40)
-                            bubble_height = gr.Number(label="預設圓圈高度", value=40)
+                            bubble_width = gr.Number(label="預設圓圈寬度", value=config.DEFAULT_BUBBLE_WIDTH)
+                            bubble_height = gr.Number(label="預設圓圈高度", value=config.DEFAULT_BUBBLE_HEIGHT)
                         update_bubble_btn = gr.Button("更新圓圈尺寸", size="sm")
 
                         dimension_status = gr.Textbox(label="尺寸狀態", lines=1, interactive=False)
@@ -1249,8 +1239,8 @@ def create_gradio_interface():
                             block_name_input = gr.Textbox(label="區塊名稱", placeholder="例如：MCQ_Block_Q1")
 
                             with gr.Row():
-                                origin_x_input = gr.Number(label="起始 X 座標", value=100)
-                                origin_y_input = gr.Number(label="起始 Y 座標", value=100)
+                                origin_x_input = gr.Number(label="起始 X 座標", value=config.DEFAULT_ORIGIN_X)
+                                origin_y_input = gr.Number(label="起始 Y 座標", value=config.DEFAULT_ORIGIN_Y)
 
                             use_selected_coords_btn = gr.Button("📍 使用已選座標", size="sm")
 
@@ -1279,8 +1269,8 @@ def create_gradio_interface():
                             )
 
                             with gr.Row():
-                                bubbles_gap_input = gr.Number(label="圓圈間距", value=50)
-                                labels_gap_input = gr.Number(label="標籤間距", value=50)
+                                bubbles_gap_input = gr.Number(label="圓圈間距", value=config.SMALL_BUBBLE_GAP)
+                                labels_gap_input = gr.Number(label="標籤間距", value=config.SMALL_BUBBLE_GAP)
 
                             with gr.Row():
                                 custom_bubble_w = gr.Number(label="自訂圓圈寬度（選填）", value=None)
@@ -1293,7 +1283,7 @@ def create_gradio_interface():
 
                     field_blocks_display = gr.Textbox(
                         label="目前欄位區塊",
-                        lines=10,
+                        lines=config.DEFAULT_FIELD_BLOCKS_LINES,
                         value="尚未新增任何欄位區塊",
                         interactive=False,
                     )
@@ -1505,9 +1495,9 @@ def create_gradio_interface():
                             gr.Markdown("#### 題目設定")
                             gen_num_questions = gr.Number(
                                 label="題目數量",
-                                value=20,
-                                minimum=1,
-                                maximum=200,
+                                value=config.DEFAULT_NUM_QUESTIONS,
+                                minimum=config.NUM_QUESTIONS_MIN,
+                                maximum=config.NUM_QUESTIONS_MAX,
                                 step=1,
                             )
 
@@ -1521,8 +1511,8 @@ def create_gradio_interface():
                             gen_num_columns = gr.Number(
                                 label="欄數（橫向排列）",
                                 value=4,
-                                minimum=1,
-                                maximum=10,
+                                minimum=config.NUM_COLUMNS_MIN,
+                                maximum=config.NUM_COLUMNS_MAX,
                                 step=1,
                                 info="題目橫向排列幾欄（X 軸，由左至右）",
                             )
@@ -1579,22 +1569,22 @@ def create_gradio_interface():
                             with gr.Row():
                                 gen_page_width = gr.Number(
                                     label="頁面寬度（像素）",
-                                    value=2100,
-                                    minimum=800,
-                                    maximum=4000,
+                                    value=config.GENERATOR_PAGE_WIDTH,
+                                    minimum=config.PAGE_WIDTH_MIN,
+                                    maximum=config.PAGE_WIDTH_MAX,
                                 )
                                 gen_page_height = gr.Number(
                                     label="頁面高度（像素）",
-                                    value=2970,
-                                    minimum=800,
-                                    maximum=5000,
+                                    value=config.GENERATOR_PAGE_HEIGHT,
+                                    minimum=config.PAGE_HEIGHT_MIN,
+                                    maximum=config.PAGE_HEIGHT_MAX,
                                 )
 
                             gen_bubble_size = gr.Number(
                                 label="圓圈大小（像素）",
-                                value=60,
-                                minimum=20,
-                                maximum=100,
+                                value=config.GENERATOR_BUBBLE_SIZE,
+                                minimum=config.BUBBLE_SIZE_MIN,
+                                maximum=config.BUBBLE_SIZE_MAX,
                             )
 
                         # Generate button
@@ -1653,16 +1643,16 @@ def create_gradio_interface():
 
                     # Calculate safe text positioning (avoid markers)
                     # Markers are at 10% of page width, so start text after marker + margin
-                    marker_size = int(page_w * 0.1) if inc_mark else 0
-                    safe_margin_left = marker_size + 50 if inc_mark else 50
-                    safe_y_start = marker_size + 60 if inc_mark else 50  # Start below marker
+                    marker_size = int(page_w * config.MARKER_SIZE_RATIO) if inc_mark else 0
+                    safe_margin_left = marker_size + config.TEXT_SAFE_MARGIN_WITH_MARKER if inc_mark else config.TEXT_SAFE_MARGIN
+                    safe_y_start = marker_size + config.CUSTOM_TEXT_SPACING if inc_mark else config.TEXT_SAFE_MARGIN  # Start below marker
 
                     # Add custom text lines if provided (center-aligned)
-                    line_spacing = 50  # Spacing between lines
+                    line_spacing = config.TEXT_LINE_SPACING
 
                     if text1 and text1.strip():
                         # Approximate character width (works for both English and Chinese)
-                        text_width = len(text1) * 18  # Slightly larger for Chinese chars
+                        text_width = len(text1) * config.CHAR_WIDTH_LARGE
                         custom_texts.append({
                             "text": text1,
                             "x": max(safe_margin_left, page_w // 2 - text_width // 2),
@@ -1671,7 +1661,7 @@ def create_gradio_interface():
                             "bold": True,
                         })
                     if text2 and text2.strip():
-                        text_width = len(text2) * 15
+                        text_width = len(text2) * config.CHAR_WIDTH_NORMAL
                         custom_texts.append({
                             "text": text2,
                             "x": max(safe_margin_left, page_w // 2 - text_width // 2),
@@ -1680,7 +1670,7 @@ def create_gradio_interface():
                             "bold": False,
                         })
                     if text3 and text3.strip():
-                        text_width = len(text3) * 15
+                        text_width = len(text3) * config.CHAR_WIDTH_NORMAL
                         custom_texts.append({
                             "text": text3,
                             "x": max(safe_margin_left, page_w // 2 - text_width // 2),
@@ -1781,9 +1771,9 @@ def create_gradio_interface():
                             gr.Markdown("#### 題目設定")
                             batch_num_questions = gr.Number(
                                 label="題目數量",
-                                value=20,
-                                minimum=1,
-                                maximum=200,
+                                value=config.DEFAULT_NUM_QUESTIONS,
+                                minimum=config.NUM_QUESTIONS_MIN,
+                                maximum=config.NUM_QUESTIONS_MAX,
                                 step=1,
                             )
 
@@ -1796,8 +1786,8 @@ def create_gradio_interface():
                             batch_num_columns = gr.Number(
                                 label="欄數（橫向排列）",
                                 value=4,
-                                minimum=1,
-                                maximum=10,
+                                minimum=config.NUM_COLUMNS_MIN,
+                                maximum=config.NUM_COLUMNS_MAX,
                                 step=1,
                             )
 
@@ -1831,16 +1821,16 @@ def create_gradio_interface():
                             with gr.Row():
                                 batch_page_width = gr.Number(
                                     label="頁面寬度（像素）",
-                                    value=2100,
+                                    value=config.GENERATOR_PAGE_WIDTH,
                                 )
                                 batch_page_height = gr.Number(
                                     label="頁面高度（像素）",
-                                    value=2970,
+                                    value=config.GENERATOR_PAGE_HEIGHT,
                                 )
 
                             batch_bubble_size = gr.Number(
                                 label="圓圈大小（像素）",
-                                value=60,
+                                value=config.GENERATOR_BUBBLE_SIZE,
                             )
 
                         batch_generate_btn = gr.Button(
@@ -1854,7 +1844,7 @@ def create_gradio_interface():
 
                         batch_status = gr.Textbox(
                             label="狀態訊息",
-                            lines=12,
+                            lines=config.DEFAULT_STATUS_LINES,
                             interactive=False,
                         )
 
@@ -1959,13 +1949,13 @@ def create_gradio_interface():
                         page_w = int(pw)
 
                         # Calculate safe positioning
-                        marker_size = int(page_w * 0.1) if inc_mark else 0
-                        safe_margin_left = marker_size + 50 if inc_mark else 50
-                        safe_y_start = marker_size + 60 if inc_mark else 50
-                        line_spacing = 50
+                        marker_size = int(page_w * config.MARKER_SIZE_RATIO) if inc_mark else 0
+                        safe_margin_left = marker_size + config.TEXT_SAFE_MARGIN_WITH_MARKER if inc_mark else config.TEXT_SAFE_MARGIN
+                        safe_y_start = marker_size + config.CUSTOM_TEXT_SPACING if inc_mark else config.TEXT_SAFE_MARGIN
+                        line_spacing = config.TEXT_LINE_SPACING
 
                         if text1 and text1.strip():
-                            text_width = len(text1) * 18
+                            text_width = len(text1) * config.CHAR_WIDTH_LARGE
                             custom_texts.append({
                                 "text": text1,
                                 "x": max(safe_margin_left, page_w // 2 - text_width // 2),
@@ -1974,7 +1964,7 @@ def create_gradio_interface():
                                 "bold": True,
                             })
                         if text2 and text2.strip():
-                            text_width = len(text2) * 15
+                            text_width = len(text2) * config.CHAR_WIDTH_NORMAL
                             custom_texts.append({
                                 "text": text2,
                                 "x": max(safe_margin_left, page_w // 2 - text_width // 2),
@@ -1983,7 +1973,7 @@ def create_gradio_interface():
                                 "bold": False,
                             })
                         if text3 and text3.strip():
-                            text_width = len(text3) * 15
+                            text_width = len(text3) * config.CHAR_WIDTH_NORMAL
                             custom_texts.append({
                                 "text": text3,
                                 "x": max(safe_margin_left, page_w // 2 - text_width // 2),
@@ -2082,8 +2072,8 @@ def create_gradio_interface():
 if __name__ == "__main__":
     demo = create_gradio_interface()
     demo.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        share=False,
-        show_error=True,
+        server_name=config.GRADIO_SERVER_NAME,
+        server_port=config.GRADIO_SERVER_PORT,
+        share=config.GRADIO_SHARE,
+        show_error=config.GRADIO_SHOW_ERROR,
     )
