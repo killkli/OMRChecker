@@ -1592,7 +1592,7 @@ def create_gradio_interface():
 
                             gen_bubble_size = gr.Number(
                                 label="圓圈大小（像素）",
-                                value=40,
+                                value=60,
                                 minimum=20,
                                 maximum=100,
                             )
@@ -1840,7 +1840,7 @@ def create_gradio_interface():
 
                             batch_bubble_size = gr.Number(
                                 label="圓圈大小（像素）",
-                                value=40,
+                                value=60,
                             )
 
                         batch_generate_btn = gr.Button(
