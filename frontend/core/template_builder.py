@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Tuple
 
 import cv2
-import gradio as gr
 
 from src.constants import FIELD_TYPES
 from src.logger import logger
@@ -343,14 +342,14 @@ class TemplateBuilder:
         except Exception as e:
             return None, f"Error exporting template: {str(e)}"
 
-    def get_coordinates_from_click(self, evt: gr.SelectData) -> Tuple[int, int, str]:
-        """Get coordinates from image click event.
+    def get_coordinates_from_click(self, x: int, y: int) -> Tuple[int, int, str]:
+        """Get coordinates from click position.
 
         Args:
-            evt: Gradio SelectData event containing click coordinates
+            x: X coordinate
+            y: Y coordinate
 
         Returns:
             Tuple of (x, y, status_message)
         """
-        x, y = evt.index[0], evt.index[1]
         return x, y, f"Selected coordinates: ({x}, {y})"

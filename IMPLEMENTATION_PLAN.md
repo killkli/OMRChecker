@@ -151,16 +151,30 @@ Refactor `frontend/app.py` (2090 lines) to improve maintainability, testability,
 **Tests**:
 - UI integration tests
 - Business logic unit tests can run without Gradio
-**Status**: Not Started
+**Status**: Complete
 
 ### Tasks:
-- [ ] Create `frontend/ui/` directory
-- [ ] Create `frontend/ui/tabs/` for individual tab modules
-- [ ] Move Gradio interface code to `frontend/ui/interface.py`
-- [ ] Create controller classes to mediate between UI and business logic
-- [ ] Extract all Gradio event handlers to UI layer
-- [ ] Ensure core business logic has no UI dependencies
-- [ ] Update app.py to only initialize and launch interface
+- [x] Create `frontend/ui/` directory
+- [x] Create `frontend/ui/tabs/` for individual tab modules
+- [x] Move Gradio interface code to `frontend/ui/interface.py`
+- [x] Create controller classes to mediate between UI and business logic
+- [x] Extract all Gradio event handlers to UI layer
+- [x] Ensure core business logic has no UI dependencies
+- [x] Update app.py to only initialize and launch interface
+
+### Completion Notes:
+- Created `frontend/ui/` directory structure with `interface.py` and `tabs/` subdirectory
+- Extracted all four tab creation functions to dedicated modules:
+  - `frontend/ui/tabs/processing_tab.py` - OMR sheet processing UI
+  - `frontend/ui/tabs/template_tab.py` - Template builder UI
+  - `frontend/ui/tabs/generator_tab.py` - Sheet generator UI
+  - `frontend/ui/tabs/batch_tab.py` - Batch generation UI
+- Created `frontend/ui/interface.py` with `create_gradio_interface()` function
+- Simplified `frontend/app.py` from 1070 lines to 45 lines (entry point only)
+- All 23 existing tests pass without modification
+- Application launches successfully with identical behavior
+- Clean separation achieved: UI code in `frontend/ui/`, business logic in `frontend/core/`
+- No Gradio dependencies in core business logic modules
 
 ---
 
