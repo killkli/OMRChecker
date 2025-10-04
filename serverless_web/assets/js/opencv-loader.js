@@ -4,6 +4,12 @@
  */
 
 class OpenCVLoader {
+    // 載入配置常數
+    static LOAD_TIMEOUT_MS = 15000;              // 載入超時時間（毫秒）
+    static PROGRESS_UPDATE_INTERVAL_MS = 200;    // 進度更新間隔（毫秒）
+    static PROGRESS_MAX_SIMULATED = 90;          // 模擬進度最大值（%）
+    static PROGRESS_COMPLETE = 100;              // 進度完成值（%）
+
     constructor() {
         this.isReady = false;
         this.loadStartTime = Date.now();
@@ -25,9 +31,10 @@ class OpenCVLoader {
         let progress = 0;
         const interval = setInterval(() => {
             if (this.isReady) {
-                progress = 100;
+                progress = OpenCVLoader.PROGRESS_COMPLETE;
                 this.notifyProgress(progress);
                 clearInterval(interval);
+                clearTimeout(timeout);
                 return;
             }
 
@@ -42,17 +49,17 @@ class OpenCVLoader {
                 progress += Math.random() * 0.5;
             }
 
-            progress = Math.min(progress, 90); // 最多到 90%,等待真正就緒
+            progress = Math.min(progress, OpenCVLoader.PROGRESS_MAX_SIMULATED);
             this.notifyProgress(progress);
-        }, 200);
+        }, OpenCVLoader.PROGRESS_UPDATE_INTERVAL_MS);
 
-        // 超時處理 (15 秒)
-        setTimeout(() => {
+        // 超時處理
+        const timeout = setTimeout(() => {
             if (!this.isReady) {
                 clearInterval(interval);
-                this.notifyError(new Error('OpenCV.js 載入超時'));
+                this.notifyError(new Error('OpenCV.js 載入超時（超過 15 秒）'));
             }
-        }, 15000);
+        }, OpenCVLoader.LOAD_TIMEOUT_MS);
     }
 
     /**
@@ -73,7 +80,7 @@ class OpenCVLoader {
         }
 
         // 通知進度完成
-        this.notifyProgress(100);
+        this.notifyProgress(OpenCVLoader.PROGRESS_COMPLETE);
 
         // 執行所有就緒回調
         this.callbacks.onReady.forEach(callback => {
@@ -143,11 +150,17 @@ class OpenCVLoader {
      * @param {Number} percent - 進度百分比 (0-100)
      */
     notifyProgress(percent) {
+        // 參數驗證
+        if (typeof percent !== 'number' || percent < 0 || percent > 100) {
+            console.warn('⚠️ 無效的進度值:', percent);
+            return;
+        }
+
         this.callbacks.onProgress.forEach(callback => {
             try {
                 callback(percent);
             } catch (e) {
-                console.error('進度回調執行錯誤:', e);
+                console.error('❌ 進度回調執行錯誤:', e);
             }
         });
     }
@@ -157,13 +170,19 @@ class OpenCVLoader {
      * @param {Error} error - 錯誤物件
      */
     notifyError(error) {
+        // 參數驗證
+        if (!(error instanceof Error)) {
+            console.warn('⚠️ notifyError 需要 Error 物件，收到:', typeof error);
+            error = new Error(String(error));
+        }
+
         console.error('OpenCV.js 載入錯誤:', error);
 
         this.callbacks.onError.forEach(callback => {
             try {
                 callback(error);
             } catch (e) {
-                console.error('錯誤回調執行錯誤:', e);
+                console.error('❌ 錯誤回調執行錯誤:', e);
             }
         });
     }

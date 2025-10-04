@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self' 'unsafe-inline' https://docs.opencv.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';">
     <title>OMR Checker - 線上答案卡辨識</title>
     <link rel="stylesheet" href="./assets/css/style.css">
 </head>
@@ -15,7 +17,10 @@
 
         <main>
             <!-- OpenCV.js 載入狀態 -->
-            <div id="opencv-status" class="status-card">
+            <section id="opencv-status"
+                     class="status-card"
+                     role="status"
+                     aria-live="polite">
                 <div class="status-icon" id="status-icon">⏳</div>
                 <div class="status-content">
                     <h2 id="status-title">系統初始化中</h2>
@@ -24,7 +29,7 @@
                         <div class="loading-progress" id="loading-progress"></div>
                     </div>
                 </div>
-            </div>
+            </section>
 
             <!-- 功能區域 (初始隱藏) -->
             <div id="app-content" style="display: none;">

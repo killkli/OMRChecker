@@ -135,21 +135,24 @@ class OMRApp {
      * 測試 OpenCV 基本功能
      */
     testOpenCV() {
+        let testMat = null;
         try {
             // 建立一個簡單的矩陣來測試 OpenCV 是否正常運作
-            const testMat = new cv.Mat(100, 100, cv.CV_8UC3);
+            testMat = new cv.Mat(100, 100, cv.CV_8UC3);
 
             console.log('🧪 OpenCV 功能測試:');
             console.log(`  - 矩陣建立: ✅ (${testMat.rows}x${testMat.cols})`);
             console.log(`  - 矩陣類型: ${testMat.type()}`);
             console.log(`  - 記憶體管理: ✅`);
 
-            // 釋放測試矩陣
-            testMat.delete();
-
             console.log('✅ OpenCV 所有功能測試通過');
         } catch (e) {
             console.error('❌ OpenCV 功能測試失敗:', e);
+        } finally {
+            // 確保在任何情況下都釋放記憶體
+            if (testMat) {
+                testMat.delete();
+            }
         }
     }
 
