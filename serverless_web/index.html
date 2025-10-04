@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMR Checker - 線上答案卡辨識</title>
+    <link rel="stylesheet" href="./assets/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📝 OMR Checker</h1>
+            <p class="subtitle">完全在瀏覽器端運行的答案卡辨識系統</p>
+        </header>
+
+        <main>
+            <!-- OpenCV.js 載入狀態 -->
+            <div id="opencv-status" class="status-card">
+                <div class="status-icon" id="status-icon">⏳</div>
+                <div class="status-content">
+                    <h2 id="status-title">系統初始化中</h2>
+                    <p id="status-text">正在載入 OpenCV.js...</p>
+                    <div class="loading-bar" id="loading-bar">
+                        <div class="loading-progress" id="loading-progress"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 功能區域 (初始隱藏) -->
+            <div id="app-content" style="display: none;">
+                <div class="info-card">
+                    <h3>✅ OpenCV.js 已就緒</h3>
+                    <p>系統已完成初始化，準備進行影像處理。</p>
+                    <div id="opencv-version" class="version-info"></div>
+                </div>
+
+                <!-- 預留給下個階段的功能 -->
+                <div class="placeholder">
+                    <p>📋 影像上傳功能將在 Stage 2 實作</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>基於 <a href="https://github.com/Udayraj123/OMRChecker" target="_blank">OMRChecker</a> 專案 | 使用 OpenCV.js 開發</p>
+        </footer>
+    </div>
+
+    <!-- OpenCV.js 初始化配置 -->
+    <script>
+        var Module = {
+            onRuntimeInitialized() {
+                if (window.opencvLoader) {
+                    window.opencvLoader.onOpenCVReady();
+                }
+            }
+        };
+    </script>
+
+    <!-- 載入腳本 (順序重要) -->
+    <script src="./assets/js/opencv-loader.js"></script>
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <script src="./assets/js/app.js"></script>
+</body>
+</html>
