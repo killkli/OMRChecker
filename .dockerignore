@@ -30,9 +30,8 @@ Thumbs.db
 .gitignore
 .github/
 
-# Documentation
-*.md
-!README.md
+# Documentation (keep README.md for pyproject.toml)
+# *.md  # Don't exclude all md files, pyproject.toml needs README.md
 
 # Test files
 test_*.py
