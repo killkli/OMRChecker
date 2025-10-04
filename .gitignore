@@ -8,9 +8,9 @@ inputs/*
 outputs/*
 
 # Font files (large, download separately)
-fonts/*.ttf
-fonts/*.ttc
-fonts/*.otf
+# fonts/*.ttf
+# fonts/*.ttc
+# fonts/*.otf
 
 # Misc
 **/.DS_Store
