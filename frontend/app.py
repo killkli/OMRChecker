@@ -986,7 +986,7 @@ class OMRSheetGenerator:
                 cv2.imwrite(marker_temp.name, marker_img)
                 marker_temp.close()
 
-                # Use CropOnMarkers with tight rescale range to minimize scaling
+                # Use CropOnMarkers with wider range for photo-based recognition
                 # Range is in percentage: 100 = 1.0x scale
                 self.template_data["preProcessors"] = [
                     {
@@ -994,9 +994,11 @@ class OMRSheetGenerator:
                         "options": {
                             "relativePath": "omr_marker.jpg",
                             "sheetToMarkerWidthRatio": page_width // marker_size,
-                            # Tight range around 100% for minimal scaling (99-101%)
-                            "marker_rescale_range": [99, 101],
-                            "marker_rescale_steps": 2,
+                            # Wider range for photos (60-130%) with lower threshold
+                            "marker_rescale_range": [60, 130],
+                            "marker_rescale_steps": 15,
+                            "min_matching_threshold": 0.2,
+                            "max_matching_variation": 0.5,
                         },
                     },
                 ]
