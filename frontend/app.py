@@ -827,15 +827,19 @@ class OMRSheetGenerator:
                 # No custom text, use default header height
                 current_y = header_height
 
-            # Calculate questions layout using grid system
+            # Calculate questions layout using grid system - COLUMN-FIRST ordering
+            # Each column contains questions from top to bottom, then move to next column
             questions_drawn = 0
-            row_idx = 0
 
-            # Calculate how many rows we need
-            num_rows = (num_questions + num_columns - 1) // num_columns
+            # Calculate how many rows per column we need
+            questions_per_column = (num_questions + num_columns - 1) // num_columns
 
-            for row in range(num_rows):
-                for col in range(num_columns):
+            # Iterate column-first (left to right), then row (top to bottom)
+            for col in range(num_columns):
+                # Reset Y position for each new column
+                column_y = current_y
+
+                for row in range(questions_per_column):
                     if questions_drawn >= num_questions:
                         break
 
@@ -843,8 +847,8 @@ class OMRSheetGenerator:
                     # X position: margin + column_index * (question_width + column_gap)
                     block_x = margin + col * (single_question_width + column_gap)
 
-                    # Y position: current_y for this row
-                    block_y = current_y
+                    # Y position: start_y + row_index * row_gap
+                    block_y = column_y
 
                     # Question metadata
                     block_name = f"Block_Q{questions_drawn + 1}"
@@ -911,8 +915,8 @@ class OMRSheetGenerator:
 
                     questions_drawn += 1
 
-                # Move to next row (Y-axis downward)
-                current_y += row_gap
+                    # Move to next row within this column (Y-axis downward)
+                    column_y += row_gap
 
             # Add QR Code if requested
             msg = ''  # Initialize msg for QR block
