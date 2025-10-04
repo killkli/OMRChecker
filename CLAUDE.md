@@ -40,6 +40,11 @@ This project utilizes a multi-agent system. As the PM, your role is to orchestra
     *   **Role:** Code Reviewer
     *   **Responsibility:** Reviews code submitted by the `engineer-agent` to ensure it meets all quality standards defined in `CLAUDE.md`.
 
+3.  **`web-query-agent`**
+    *   **File:** `web-query-agent.md`
+    *   **Role:** Web Data Query Agent
+    *   **Responsibility:** Queries and extracts information from web sources to provide up-to-date technical information.
+
 ### Standard Workflow:
 
 1.  **PM Creates Plan:** Based on the user's request, you (the PM) create the `IMPLEMENTATION_PLAN.md`.
