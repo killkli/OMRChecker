@@ -785,22 +785,20 @@ class ImageProcessor {
         // 提取 ROI
         const roi = binary.roi(new cv.Rect(x1, y1, x2 - x1, y2 - y1));
 
-        // 計算黑色像素數量（在二值化影像中，黑色 = 0）
-        const totalPixels = roi.rows * roi.cols;
-        let blackPixels = 0;
+        try {
+            // 計算黑色像素數量（在二值化影像中，黑色 = 0）
+            const totalPixels = roi.rows * roi.cols;
 
-        for (let i = 0; i < roi.rows; i++) {
-            for (let j = 0; j < roi.cols; j++) {
-                if (roi.ucharAt(i, j) === 0) {
-                    blackPixels++;
-                }
-            }
+            // 使用 OpenCV 原生函數計算非零像素（白色像素）
+            const whitePixels = cv.countNonZero(roi);
+            const blackPixels = totalPixels - whitePixels;
+
+            const fillRatio = blackPixels / totalPixels;
+            return fillRatio;
+        } finally {
+            // 確保 ROI 記憶體被釋放
+            roi.delete();
         }
-
-        roi.delete();
-
-        const fillRatio = blackPixels / totalPixels;
-        return fillRatio;
     }
 
     /**
