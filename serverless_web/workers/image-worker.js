@@ -753,30 +753,21 @@ function detectAndParseAnswers(correctedMat, template) {
 
     console.log(`[Worker] Detected answers:`, answers);
 
-    // 計算分數
-    const scoring = calculateScore(answers, answerKey);
-
-    // 建立視覺化結果
+    // 建立視覺化結果 - 只標記填塗的格子，不顯示對錯
     const visualization = correctedMat.clone();
 
     for (const data of visualizationData) {
-      const { x, y, width, height, fieldLabel, fieldValue, isFilled } = data;
+      const { x, y, width, height, fieldLabel, fieldValue, isFilled, fillRatio } = data;
 
       const studentAnswers = answers[fieldLabel] || [];
       const isSelected = studentAnswers.includes(fieldValue);
-      const correctAnswer = answerKey[fieldLabel];
-      const isCorrect = correctAnswer && correctAnswer.includes(fieldValue);
 
-      // 選擇顏色
+      // 選擇顏色：只區分填塗/未填塗，不顯示對錯
       let color;
-      if (isSelected && isCorrect) {
-        color = [0, 255, 0, 255];  // 綠色 - 正確
-      } else if (isSelected && !isCorrect) {
-        color = [255, 0, 0, 255];  // 紅色 - 錯誤
-      } else if (!isSelected && isCorrect) {
-        color = [0, 0, 255, 255];  // 藍色 - 應選但未選
+      if (isSelected) {
+        color = [0, 255, 0, 255];  // 綠色 - 已填塗
       } else {
-        color = [128, 128, 128, 255];  // 灰色 - 未選
+        color = [200, 200, 200, 255];  // 淺灰色 - 未填塗
       }
 
       // Draw circle at bubble position
@@ -787,11 +778,23 @@ function detectAndParseAnswers(correctedMat, template) {
         color,
         2
       );
+
+      // 如果已填塗，標記填塗比例
+      if (isSelected) {
+        cv.putText(
+          visualization,
+          `${Math.round(fillRatio * 100)}%`,
+          new cv.Point(x + 15, y + 5),
+          cv.FONT_HERSHEY_SIMPLEX,
+          0.3,
+          [0, 255, 0, 255],
+          1
+        );
+      }
     }
 
     return {
       answers,
-      scoring,
       visualization
     };
 
@@ -974,27 +977,20 @@ async function processOMRBatch(data) {
       }
     }
 
-    // 5. 使用 EvaluationParser 評分（如果有提供 evaluation）
-    let gradeResult = null;
-    if (evaluation && omrResult) {
-      // 這裡需要使用 config-parser.js 的 EvaluationParser
-      // 但 Worker 中無法直接使用，所以先返回基本結果
-      gradeResult = omrResult.scoring;
-    } else if (omrResult) {
-      gradeResult = omrResult.scoring;
-    }
-
-    // 6. 轉換標記後的圖片為 ImageData
+    // 5. 轉換標記後的圖片為 ImageData
     let markedImageData = null;
     if (omrResult && omrResult.visualization) {
       markedImageData = matToImageData(omrResult.visualization);
     }
 
-    // 7. 準備結果
+    // 6. 準備結果 - 只回傳辨識到的答案，不評分
     const result = {
       answers: omrResult ? omrResult.answers : {},
-      ...gradeResult,
-      markedImage: markedImageData
+      markedImage: markedImageData,
+      // 統計資訊
+      totalQuestions: omrResult ? Object.keys(omrResult.answers).length : 0,
+      answeredQuestions: omrResult ?
+        Object.values(omrResult.answers).filter(a => a && a.length > 0).length : 0
     };
 
     // 8. 發送完成訊息
