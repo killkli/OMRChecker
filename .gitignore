@@ -17,3 +17,4 @@ outputs/*
 **/__pycache__
 venv/
 OMRChecker.wiki/
+serverless_web/assets/lib/opencv.js
