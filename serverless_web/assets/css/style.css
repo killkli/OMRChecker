@@ -777,3 +777,376 @@ footer a:hover {
         padding: 0.6rem 1rem;
     }
 }
+
+/* ===== 新上傳介面樣式 ===== */
+.upload-guide {
+    background: #f1f5f9;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    margin-bottom: 2rem;
+}
+
+.upload-guide h3 {
+    color: var(--primary-color);
+    margin-bottom: 1rem;
+}
+
+.upload-guide ol {
+    margin-left: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.upload-guide ol li {
+    margin-bottom: 0.5rem;
+}
+
+.tip {
+    color: var(--warning-color);
+    font-size: 0.95rem;
+    margin-top: 1rem;
+}
+
+.upload-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.upload-box {
+    background: var(--card-bg);
+    border: 2px dashed var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    text-align: center;
+    transition: all 0.3s;
+    cursor: pointer;
+}
+
+.upload-box:hover {
+    border-color: var(--primary-color);
+    background: #f8faff;
+}
+
+.upload-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.upload-icon {
+    font-size: 2.5rem;
+}
+
+.upload-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.upload-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.files-list, .file-name {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem;
+    background: #f1f5f9;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.file-item-remove {
+    color: var(--error-color);
+    cursor: pointer;
+    font-size: 1.2rem;
+}
+
+.upload-accordion {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+}
+
+.upload-accordion summary {
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+}
+
+.upload-accordion[open] summary {
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.processing-options {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 1.2rem;
+    height: 1.2rem;
+    cursor: pointer;
+}
+
+.action-buttons {
+    display: flex;
+    justify-content: center;
+    margin-top: 2rem;
+}
+
+.btn-lg {
+    padding: 1rem 2.5rem;
+    font-size: 1.1rem;
+}
+
+/* ===== 批次處理結果區域 ===== */
+.batch-results-section {
+    background: var(--card-bg);
+    border-radius: 0.75rem;
+    padding: 2rem;
+    margin-top: 2rem;
+    box-shadow: var(--shadow);
+}
+
+.status-message-box {
+    background: #f1f5f9;
+    border-left: 4px solid var(--primary-color);
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    margin-bottom: 2rem;
+}
+
+.status-message {
+    font-family: 'Courier New', monospace;
+    font-size: 0.95rem;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    color: var(--text-primary);
+}
+
+.batch-progress-container {
+    background: #f8fafc;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    margin-bottom: 2rem;
+}
+
+.progress-bar-container {
+    position: relative;
+    background: #e2e8f0;
+    height: 2rem;
+    border-radius: 1rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-color), var(--success-color));
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.batch-files-status {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.file-status-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: white;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.file-status-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.file-status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.file-status-badge.processing {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.file-status-badge.success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.file-status-badge.error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* ===== 圖片 Gallery ===== */
+.gallery-container {
+    margin-bottom: 2rem;
+}
+
+.images-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.gallery-item {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    transition: all 0.3s;
+}
+
+.gallery-item:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-4px);
+}
+
+.gallery-image {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.gallery-info {
+    padding: 1rem;
+}
+
+.gallery-filename {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.gallery-score {
+    font-size: 1.1rem;
+    color: var(--success-color);
+}
+
+/* ===== 處理記錄 ===== */
+.logs-accordion {
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 2rem;
+}
+
+.logs-accordion summary {
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+}
+
+.logs-accordion[open] summary {
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.processing-logs {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 1rem;
+    border-radius: 0.25rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.log-entry {
+    margin-bottom: 0.25rem;
+}
+
+.log-entry.info {
+    color: #7dd3fc;
+}
+
+.log-entry.success {
+    color: #86efac;
+}
+
+.log-entry.warning {
+    color: #fde047;
+}
+
+.log-entry.error {
+    color: #fca5a5;
+}
+
+/* ===== 結果下載 ===== */
+.results-download {
+    background: #f1f5f9;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+}
+
+.download-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+/* ===== 響應式調整 ===== */
+@media (max-width: 768px) {
+    .upload-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .images-gallery {
+        grid-template-columns: 1fr;
+    }
+
+    .download-buttons {
+        flex-direction: column;
+    }
+}

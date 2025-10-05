@@ -471,7 +471,114 @@ class OMRApp {
       });
     }
 
+    // 批次處理相關事件
+    this.setupBatchProcessingListeners();
+
     console.log('✅ 事件監聽器已設定');
+  }
+
+  /**
+   * 設定批次處理事件監聽器
+   */
+  setupBatchProcessingListeners() {
+    // 多檔案上傳
+    const imageFilesInput = document.getElementById('image-files-input');
+    if (imageFilesInput) {
+      imageFilesInput.addEventListener('change', (e) => {
+        this.handleImageFilesSelect(e);
+      });
+
+      // 點擊 label 觸發上傳
+      const imageLabel = document.querySelector('label[for="image-files-input"]');
+      if (imageLabel) {
+        imageLabel.addEventListener('click', () => {
+          imageFilesInput.click();
+        });
+      }
+    }
+
+    // Template 上傳
+    const templateInput = document.getElementById('template-file-input');
+    if (templateInput) {
+      templateInput.addEventListener('change', (e) => {
+        this.handleTemplateSelect(e);
+      });
+
+      const templateLabel = document.querySelector('label[for="template-file-input"]');
+      if (templateLabel) {
+        templateLabel.addEventListener('click', () => {
+          templateInput.click();
+        });
+      }
+    }
+
+    // Config 上傳
+    const configInput = document.getElementById('config-file-input');
+    if (configInput) {
+      configInput.addEventListener('change', (e) => {
+        this.handleConfigSelect(e);
+      });
+
+      const configLabel = document.querySelector('label[for="config-file-input"]');
+      if (configLabel) {
+        configLabel.addEventListener('click', () => {
+          configInput.click();
+        });
+      }
+    }
+
+    // Evaluation 上傳
+    const evaluationInput = document.getElementById('evaluation-file-input');
+    if (evaluationInput) {
+      evaluationInput.addEventListener('change', (e) => {
+        this.handleEvaluationSelect(e);
+      });
+
+      const evaluationLabel = document.querySelector('label[for="evaluation-file-input"]');
+      if (evaluationLabel) {
+        evaluationLabel.addEventListener('click', () => {
+          evaluationInput.click();
+        });
+      }
+    }
+
+    // Marker 上傳
+    const markerInput = document.getElementById('marker-file-input');
+    if (markerInput) {
+      markerInput.addEventListener('change', (e) => {
+        this.handleMarkerSelect(e);
+      });
+
+      const markerLabel = document.querySelector('label[for="marker-file-input"]');
+      if (markerLabel) {
+        markerLabel.addEventListener('click', () => {
+          markerInput.click();
+        });
+      }
+    }
+
+    // 開始批次處理按鈕
+    const processBatchBtn = document.getElementById('process-batch-btn');
+    if (processBatchBtn) {
+      processBatchBtn.addEventListener('click', () => {
+        this.startBatchProcessing();
+      });
+    }
+
+    // 下載按鈕
+    const downloadCSVBtn = document.getElementById('download-csv-btn');
+    if (downloadCSVBtn) {
+      downloadCSVBtn.addEventListener('click', () => {
+        this.downloadBatchCSV();
+      });
+    }
+
+    const downloadJSONBtn = document.getElementById('download-json-btn');
+    if (downloadJSONBtn) {
+      downloadJSONBtn.addEventListener('click', () => {
+        this.downloadBatchJSON();
+      });
+    }
   }
 
   /**
@@ -1261,6 +1368,375 @@ class OMRApp {
     } catch (error) {
       console.error('❌ 匯出歷史記錄失敗:', error);
       this.showError('匯出失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 處理多張圖片選擇
+   */
+  handleImageFilesSelect(e) {
+    const files = Array.from(e.target.files);
+    if (!this.batchImageFiles) {
+      this.batchImageFiles = [];
+    }
+    this.batchImageFiles = files;
+
+    // 更新UI顯示
+    const filesList = document.getElementById('image-files-list');
+    if (filesList && files.length > 0) {
+      filesList.innerHTML = `<div class="file-item">已選擇 ${files.length} 個檔案</div>`;
+    }
+
+    this.checkBatchReadiness();
+  }
+
+  /**
+   * 處理模板選擇
+   */
+  async handleTemplateSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      this.template = JSON.parse(text);
+      this.batchTemplateFile = file;
+
+      // 更新UI顯示
+      const fileName = document.getElementById('template-file-name');
+      if (fileName) {
+        fileName.textContent = `✓ ${file.name}`;
+        fileName.style.color = '#10b981';
+      }
+
+      this.showSuccess('模板載入成功');
+      this.checkBatchReadiness();
+    } catch (error) {
+      this.showError('模板載入失敗: ' + error.message);
+    }
+  }
+
+  /**
+   * 處理 Config 選擇
+   */
+  async handleConfigSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      this.batchConfigFile = file;
+      this.batchConfig = JSON.parse(text);
+
+      // 更新UI顯示
+      const fileName = document.getElementById('config-file-name');
+      if (fileName) {
+        fileName.textContent = `✓ ${file.name}`;
+        fileName.style.color = '#10b981';
+      }
+
+      this.showSuccess('設定檔載入成功');
+    } catch (error) {
+      this.showError('設定檔載入失敗: ' + error.message);
+    }
+  }
+
+  /**
+   * 處理 Evaluation 選擇
+   */
+  async handleEvaluationSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      this.batchEvaluationFile = file;
+      this.batchEvaluation = JSON.parse(text);
+
+      // 更新UI顯示
+      const fileName = document.getElementById('evaluation-file-name');
+      if (fileName) {
+        fileName.textContent = `✓ ${file.name}`;
+        fileName.style.color = '#10b981';
+      }
+
+      this.showSuccess('評分標準檔載入成功');
+    } catch (error) {
+      this.showError('評分標準檔載入失敗: ' + error.message);
+    }
+  }
+
+  /**
+   * 處理 Marker 選擇
+   */
+  async handleMarkerSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    this.batchMarkerFile = file;
+
+    // 更新UI顯示
+    const fileName = document.getElementById('marker-file-name');
+    if (fileName) {
+      fileName.textContent = `✓ ${file.name}`;
+      fileName.style.color = '#10b981';
+    }
+
+    this.showSuccess('標記圖檔載入成功');
+  }
+
+  /**
+   * 檢查批次處理準備狀態
+   */
+  checkBatchReadiness() {
+    const processBatchBtn = document.getElementById('process-batch-btn');
+    if (processBatchBtn) {
+      const ready = this.batchImageFiles && this.batchImageFiles.length > 0 && this.template;
+      processBatchBtn.disabled = !ready;
+    }
+  }
+
+  /**
+   * 開始批次處理
+   */
+  async startBatchProcessing() {
+    if (!this.batchImageFiles || this.batchImageFiles.length === 0) {
+      this.showError('請先選擇要處理的圖片');
+      return;
+    }
+
+    if (!this.template) {
+      this.showError('請先上傳模板檔案');
+      return;
+    }
+
+    // 初始化 BatchProcessor
+    if (!this.batchProcessor) {
+      this.batchProcessor = new BatchProcessor();
+      this.batchProcessor.setWorker(this.worker);
+    }
+
+    // 設定檔案和選項
+    this.batchProcessor.setFiles(this.batchImageFiles);
+    await this.batchProcessor.setTemplate(this.batchTemplateFile);
+
+    if (this.batchConfigFile) {
+      await this.batchProcessor.setConfig(this.batchConfigFile);
+    }
+
+    if (this.batchEvaluationFile) {
+      await this.batchProcessor.setEvaluation(this.batchEvaluationFile);
+    }
+
+    if (this.batchMarkerFile) {
+      await this.batchProcessor.setMarker(this.batchMarkerFile);
+    }
+
+    // 取得處理選項
+    const autoAlign = document.getElementById('auto-align-check')?.checked || false;
+    const layoutMode = document.getElementById('layout-mode-check')?.checked || false;
+
+    this.batchProcessor.setOptions({ autoAlign, layoutMode });
+
+    // 顯示批次結果區域
+    const batchResultsSection = document.getElementById('batch-results-section');
+    if (batchResultsSection) {
+      batchResultsSection.style.display = 'block';
+    }
+
+    // 顯示進度容器
+    const progressContainer = document.getElementById('batch-progress-container');
+    if (progressContainer) {
+      progressContainer.style.display = 'block';
+    }
+
+    // 開始處理
+    try {
+      await this.batchProcessor.startBatch(
+        (progress) => this.updateBatchProgress(progress),
+        (results) => this.onBatchComplete(results)
+      );
+    } catch (error) {
+      this.showError('批次處理失敗: ' + error.message);
+    }
+  }
+
+  /**
+   * 更新批次處理進度
+   */
+  updateBatchProgress(progress) {
+    const { current, total, fileName, status } = progress;
+
+    // 更新進度條
+    const progressBar = document.getElementById('batch-progress-bar');
+    const progressText = document.getElementById('batch-progress-text');
+    if (progressBar && progressText) {
+      const percentage = (current / total) * 100;
+      progressBar.style.width = `${percentage}%`;
+      progressText.textContent = `${current} / ${total}`;
+    }
+
+    // 更新檔案狀態列表
+    const filesStatus = document.getElementById('batch-files-status');
+    if (filesStatus) {
+      const existingItem = filesStatus.querySelector(`[data-file="${fileName}"]`);
+
+      if (existingItem) {
+        // 更新現有項目
+        const badge = existingItem.querySelector('.file-status-badge');
+        if (badge) {
+          badge.className = `file-status-badge ${status}`;
+          badge.textContent = status === 'processing' ? '處理中' : status === 'success' ? '成功' : '失敗';
+        }
+      } else {
+        // 新增項目
+        const item = document.createElement('div');
+        item.className = 'file-status-item';
+        item.dataset.file = fileName;
+        item.innerHTML = `
+          <span class="file-status-name">${fileName}</span>
+          <span class="file-status-badge ${status}">${status === 'processing' ? '處理中' : status === 'success' ? '成功' : '失敗'}</span>
+        `;
+        filesStatus.appendChild(item);
+      }
+    }
+
+    // 更新狀態訊息
+    const statusMessage = document.getElementById('status-message');
+    if (statusMessage) {
+      statusMessage.textContent = `正在處理: ${fileName} (${current}/${total})`;
+    }
+  }
+
+  /**
+   * 批次處理完成
+   */
+  onBatchComplete(results) {
+    // 更新狀態訊息
+    const statusMessage = document.getElementById('status-message');
+    if (statusMessage) {
+      const successCount = results.filter(r => r.status === 'success').length;
+      statusMessage.textContent = `批次處理完成！成功: ${successCount}/${results.length}`;
+    }
+
+    // 顯示 Gallery
+    this.displayBatchGallery(results);
+
+    // 顯示 Logs
+    this.displayBatchLogs();
+
+    // 顯示下載區域
+    const downloadContainer = document.getElementById('results-download-container');
+    if (downloadContainer) {
+      downloadContainer.style.display = 'block';
+    }
+
+    this.showSuccess(`批次處理完成！成功處理 ${results.filter(r => r.status === 'success').length} 張圖片`);
+  }
+
+  /**
+   * 顯示批次 Gallery
+   */
+  displayBatchGallery(results) {
+    const gallery = document.getElementById('marked-images-gallery');
+    const container = document.getElementById('marked-images-gallery-container');
+
+    if (!gallery || !container) return;
+
+    container.style.display = 'block';
+    gallery.innerHTML = '';
+
+    const successResults = results.filter(r => r.status === 'success');
+
+    successResults.forEach(result => {
+      const item = document.createElement('div');
+      item.className = 'gallery-item';
+
+      // 這裡需要從 result 中取得處理後的圖片
+      // 暫時顯示基本資訊
+      item.innerHTML = `
+        <div class="gallery-info">
+          <div class="gallery-filename">${result.file}</div>
+          <div class="gallery-score">分數: ${result.result?.score || 0}</div>
+        </div>
+      `;
+
+      gallery.appendChild(item);
+    });
+  }
+
+  /**
+   * 顯示批次 Logs
+   */
+  displayBatchLogs() {
+    if (!this.batchProcessor) return;
+
+    const logsContainer = document.getElementById('processing-logs-container');
+    const logs = document.getElementById('processing-logs');
+
+    if (!logsContainer || !logs) return;
+
+    logsContainer.style.display = 'block';
+
+    const logEntries = this.batchProcessor.getLogs();
+    logs.innerHTML = logEntries.map(log =>
+      `<div class="log-entry ${log.level}">[${log.timestamp}] ${log.message}</div>`
+    ).join('');
+  }
+
+  /**
+   * 下載批次 CSV
+   */
+  downloadBatchCSV() {
+    if (!this.batchProcessor) {
+      this.showError('沒有可下載的結果');
+      return;
+    }
+
+    try {
+      const csv = this.batchProcessor.exportCSV();
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+
+      link.setAttribute('href', url);
+      link.setAttribute('download', `batch-results-${Date.now()}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      this.showSuccess('CSV 已下載');
+    } catch (error) {
+      this.showError('下載失敗: ' + error.message);
+    }
+  }
+
+  /**
+   * 下載批次 JSON
+   */
+  downloadBatchJSON() {
+    if (!this.batchProcessor) {
+      this.showError('沒有可下載的結果');
+      return;
+    }
+
+    try {
+      const json = this.batchProcessor.exportJSON();
+      const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+
+      link.setAttribute('href', url);
+      link.setAttribute('download', `batch-results-${Date.now()}.json`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      this.showSuccess('JSON 已下載');
+    } catch (error) {
+      this.showError('下載失敗: ' + error.message);
     }
   }
 }
