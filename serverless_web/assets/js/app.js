@@ -388,28 +388,37 @@ class OMRApp {
    * 設定事件監聽器
    */
   setupEventListeners() {
-    // 拖放事件
-    this.elements.dropZone.addEventListener('dragover', (e) => this.handleDragOver(e));
-    this.elements.dropZone.addEventListener('dragleave', (e) => this.handleDragLeave(e));
-    this.elements.dropZone.addEventListener('drop', (e) => this.handleDrop(e));
+    // 舊版上傳事件（保留向後相容）
+    if (this.elements.dropZone) {
+      this.elements.dropZone.addEventListener('dragover', (e) => this.handleDragOver(e));
+      this.elements.dropZone.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+      this.elements.dropZone.addEventListener('drop', (e) => this.handleDrop(e));
+    }
 
-    // 點擊上傳
-    this.elements.selectFileBtn.addEventListener('click', () => {
-      this.elements.fileInput.click();
-    });
+    if (this.elements.selectFileBtn) {
+      this.elements.selectFileBtn.addEventListener('click', () => {
+        this.elements.fileInput.click();
+      });
+    }
 
-    this.elements.fileInput.addEventListener('change', (e) => {
-      this.handleFileSelect(e);
-    });
+    if (this.elements.fileInput) {
+      this.elements.fileInput.addEventListener('change', (e) => {
+        this.handleFileSelect(e);
+      });
+    }
 
     // 重新處理和上傳新圖片
-    this.elements.processBtn.addEventListener('click', () => {
-      this.reprocessImage();
-    });
+    if (this.elements.processBtn) {
+      this.elements.processBtn.addEventListener('click', () => {
+        this.reprocessImage();
+      });
+    }
 
-    this.elements.uploadNewBtn.addEventListener('click', () => {
-      this.uploadNewImage();
-    });
+    if (this.elements.uploadNewBtn) {
+      this.elements.uploadNewBtn.addEventListener('click', () => {
+        this.uploadNewImage();
+      });
+    }
 
     // Storage 相關事件
     if (this.elements.saveResultBtn) {
@@ -487,14 +496,6 @@ class OMRApp {
       imageFilesInput.addEventListener('change', (e) => {
         this.handleImageFilesSelect(e);
       });
-
-      // 點擊 label 觸發上傳
-      const imageLabel = document.querySelector('label[for="image-files-input"]');
-      if (imageLabel) {
-        imageLabel.addEventListener('click', () => {
-          imageFilesInput.click();
-        });
-      }
     }
 
     // Template 上傳
@@ -503,13 +504,6 @@ class OMRApp {
       templateInput.addEventListener('change', (e) => {
         this.handleTemplateSelect(e);
       });
-
-      const templateLabel = document.querySelector('label[for="template-file-input"]');
-      if (templateLabel) {
-        templateLabel.addEventListener('click', () => {
-          templateInput.click();
-        });
-      }
     }
 
     // Config 上傳
@@ -518,13 +512,6 @@ class OMRApp {
       configInput.addEventListener('change', (e) => {
         this.handleConfigSelect(e);
       });
-
-      const configLabel = document.querySelector('label[for="config-file-input"]');
-      if (configLabel) {
-        configLabel.addEventListener('click', () => {
-          configInput.click();
-        });
-      }
     }
 
     // Evaluation 上傳
@@ -533,13 +520,6 @@ class OMRApp {
       evaluationInput.addEventListener('change', (e) => {
         this.handleEvaluationSelect(e);
       });
-
-      const evaluationLabel = document.querySelector('label[for="evaluation-file-input"]');
-      if (evaluationLabel) {
-        evaluationLabel.addEventListener('click', () => {
-          evaluationInput.click();
-        });
-      }
     }
 
     // Marker 上傳
@@ -548,13 +528,6 @@ class OMRApp {
       markerInput.addEventListener('change', (e) => {
         this.handleMarkerSelect(e);
       });
-
-      const markerLabel = document.querySelector('label[for="marker-file-input"]');
-      if (markerLabel) {
-        markerLabel.addEventListener('click', () => {
-          markerInput.click();
-        });
-      }
     }
 
     // 開始批次處理按鈕
