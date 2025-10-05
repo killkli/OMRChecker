@@ -436,24 +436,22 @@ class ImageProcessor {
      * @returns {Object} - { corrected: Mat, corners: Array, visualization: Mat }
      */
     correctPerspective(src) {
-        let gray = null;
-        let blurred = null;
-        let binary = null;
-        let edges = null;
         let contours = null;
         let visualization = null;
+        let M = null;
+        let quadContours = [];
 
         try {
             console.log('🔄 開始透視校正流程...');
 
-            // 1. 預處理：灰階、模糊、二值化
-            gray = this.convertToGrayscale(src);
-            blurred = this.gaussianBlur(gray, 5);
-            binary = this.adaptiveThreshold(blurred);
+            // 1. 預處理：灰階、模糊、二值化（這些會自動加入 processedMats）
+            const gray = this.convertToGrayscale(src);
+            const blurred = this.gaussianBlur(gray, 5);
+            const binary = this.adaptiveThreshold(blurred);
             console.log('  ✅ 預處理完成');
 
             // 2. Canny 邊緣檢測
-            edges = this.cannyEdgeDetection(blurred);
+            const edges = this.cannyEdgeDetection(blurred);
             console.log('  ✅ 邊緣檢測完成');
 
             // 3. 查找輪廓
@@ -462,7 +460,7 @@ class ImageProcessor {
 
             // 4. 篩選四邊形輪廓
             const imageArea = src.rows * src.cols;
-            const quadContours = this.filterQuadrilateralContours(contours, imageArea);
+            quadContours = this.filterQuadrilateralContours(contours, imageArea);
 
             if (quadContours.length === 0) {
                 throw new Error('未找到答案卡輪廓，請確保答案卡完整且清晰可見');
@@ -501,7 +499,7 @@ class ImageProcessor {
             ];
 
             // 10. 計算透視變換矩陣
-            const M = this.getPerspectiveTransform(orderedCorners, dstPoints);
+            M = this.getPerspectiveTransform(orderedCorners, dstPoints);
             console.log('  ✅ 透視變換矩陣計算完成');
 
             // 11. 應用透視變換
@@ -535,11 +533,6 @@ class ImageProcessor {
 
             this.processedMats.push(visualization);
 
-            // 清理中間結果
-            M.delete();
-            quadContours.forEach(c => c.delete());
-            contours.delete();
-
             console.log('✅ 透視校正流程完成！');
 
             return {
@@ -548,18 +541,20 @@ class ImageProcessor {
                 visualization: visualization
             };
 
-        } catch (error) {
-            console.error('❌ 透視校正失敗:', error);
-
-            // 清理資源
-            if (gray) gray.delete();
-            if (blurred) blurred.delete();
-            if (binary) binary.delete();
-            if (edges) edges.delete();
+        } finally {
+            // 清理那些不在 processedMats 中的資源
             if (contours) contours.delete();
-            if (visualization) visualization.delete();
+            if (M) M.delete();
 
-            throw error;
+            // 清理四邊形輪廓陣列
+            quadContours.forEach(c => {
+                if (c && !c.isDeleted()) c.delete();
+            });
+
+            // 如果 visualization 建立失敗，需要清理
+            if (visualization && !this.processedMats.includes(visualization)) {
+                visualization.delete();
+            }
         }
     }
 }

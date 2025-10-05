@@ -408,18 +408,15 @@
                 const contours = this.processor.findContours(binary);
 
                 // 驗證結果
-                if (!contours || contours.length === 0) {
+                if (!contours || contours.size() === 0) {
                     throw new Error('未找到任何輪廓');
                 }
 
-                this.log(`找到 ${contours.length} 個輪廓`, 'success');
+                this.log(`找到 ${contours.size()} 個輪廓`, 'success');
 
-                // 視覺化輪廓
+                // 視覺化輪廓（直接繪製所有輪廓，不需要遍歷）
                 let visual = mat.clone();
-                for (let i = 0; i < contours.length; i++) {
-                    const color = new cv.Scalar(0, 255, 0, 255);
-                    cv.drawContours(visual, contours, i, color, 2);
-                }
+                cv.drawContours(visual, contours, -1, new cv.Scalar(0, 255, 0, 255), 2);
                 this.displayCanvas('找到的輪廓', visual);
 
                 // 清理
@@ -427,7 +424,7 @@
                 gray.delete();
                 binary.delete();
                 visual.delete();
-                contours.forEach(c => c.delete());
+                contours.delete();  // MatVector 直接刪除
 
                 this.log('輪廓查找測試通過', 'success');
             }
@@ -454,11 +451,13 @@
 
                 this.log(`篩選出 ${quadContours.length} 個四邊形輪廓`, 'success');
 
-                // 視覺化四邊形輪廓
+                // 視覺化四邊形輪廓（建立 MatVector 用於繪製）
                 let visual = mat.clone();
-                for (let i = 0; i < quadContours.length; i++) {
-                    const color = new cv.Scalar(255, 0, 0, 255);
-                    cv.drawContours(visual, [quadContours[i]], 0, color, 3);
+                const quadVector = new cv.MatVector();
+                quadContours.forEach(c => quadVector.push_back(c));
+
+                for (let i = 0; i < quadVector.size(); i++) {
+                    cv.drawContours(visual, quadVector, i, new cv.Scalar(255, 0, 0, 255), 3);
                 }
                 this.displayCanvas('四邊形輪廓', visual);
 
@@ -467,8 +466,9 @@
                 gray.delete();
                 binary.delete();
                 visual.delete();
-                allContours.forEach(c => c.delete());
-                quadContours.forEach(c => c.delete());
+                allContours.delete();  // MatVector 直接刪除
+                quadContours.forEach(c => c.delete());  // Mat 陣列逐一刪除
+                quadVector.delete();  // 新建的 MatVector 也要刪除
 
                 this.log('四邊形輪廓篩選測試通過', 'success');
             }
