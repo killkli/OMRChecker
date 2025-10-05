@@ -18,12 +18,18 @@ class OMRApp {
             fileInput: document.getElementById('file-input'),
             selectFileBtn: document.getElementById('select-file-btn'),
             processBtn: document.getElementById('process-btn'),
-            uploadNewBtn: document.getElementById('upload-new-btn')
+            uploadNewBtn: document.getElementById('upload-new-btn'),
+            processingProgress: document.getElementById('processing-progress'),
+            processingMessage: document.getElementById('processing-message')
         };
 
         this.imageProcessor = null;
+        this.worker = null;
         this.currentFile = null;
         this.template = null;
+        this.useWorker = true;  // 預設使用 Worker
+        this.messageId = 0;
+        this.pendingRequests = new Map();
 
         this.init();
     }
@@ -33,6 +39,52 @@ class OMRApp {
      */
     init() {
         console.log('🚀 OMR Checker 應用程式啟動');
+
+        // 檢查 Worker 支援
+        if (!window.Worker) {
+            console.warn('⚠️ 瀏覽器不支援 Web Workers，將使用主執行緒處理');
+            this.useWorker = false;
+        }
+
+        if (this.useWorker) {
+            // 使用 Worker 模式
+            this.initWorker();
+        } else {
+            // 降級到主執行緒模式
+            this.initMainThread();
+        }
+    }
+
+    /**
+     * 初始化 Worker 模式
+     */
+    initWorker() {
+        console.log('🔧 初始化 Web Worker...');
+
+        // 建立 Worker
+        this.worker = new Worker('./workers/image-worker.js');
+
+        // 設定 Worker 訊息處理
+        this.worker.onmessage = (e) => this.handleWorkerMessage(e);
+        this.worker.onerror = (error) => this.handleWorkerError(error);
+
+        // 初始化 Worker（傳送 OpenCV.js 路徑）
+        this.sendWorkerMessage('init', {
+            opencvPath: './assets/lib/opencv.js'
+        });
+
+        // 初始化 ImageProcessor（用於檔案驗證等主執行緒操作）
+        this.imageProcessor = new ImageProcessor();
+
+        // 設定事件監聽器
+        this.setupEventListeners();
+    }
+
+    /**
+     * 初始化主執行緒模式（降級方案）
+     */
+    initMainThread() {
+        console.log('🔧 使用主執行緒模式...');
 
         // 註冊 OpenCV.js 載入回調
         window.opencvLoader.onProgress((percent) => {
@@ -46,6 +98,139 @@ class OMRApp {
         window.opencvLoader.onError((error) => {
             this.onOpenCVError(error);
         });
+    }
+
+    /**
+     * 發送訊息給 Worker
+     */
+    sendWorkerMessage(type, payload) {
+        const id = ++this.messageId;
+
+        return new Promise((resolve, reject) => {
+            this.pendingRequests.set(id, { resolve, reject });
+
+            this.worker.postMessage({
+                type,
+                payload,
+                id
+            });
+
+            // 設定逾時（30 秒）
+            setTimeout(() => {
+                if (this.pendingRequests.has(id)) {
+                    this.pendingRequests.delete(id);
+                    reject(new Error('Worker 回應逾時'));
+                }
+            }, 30000);
+        });
+    }
+
+    /**
+     * 處理來自 Worker 的訊息
+     */
+    handleWorkerMessage(e) {
+        const { type, payload, id } = e.data;
+
+        switch (type) {
+            case 'ready':
+                this.onWorkerReady(payload);
+                break;
+
+            case 'progress':
+                this.onWorkerProgress(payload, id);
+                break;
+
+            case 'result':
+                this.onWorkerResult(payload, id);
+                break;
+
+            case 'error':
+                this.onWorkerError(payload, id);
+                break;
+
+            default:
+                console.warn('[App] 未知的 Worker 訊息類型:', type);
+        }
+    }
+
+    /**
+     * Worker 就緒
+     */
+    onWorkerReady(payload) {
+        console.log('✅ Worker 已就緒');
+
+        // 更新狀態卡片
+        this.elements.statusCard.classList.add('ready');
+        this.elements.statusIcon.textContent = '✅';
+        this.elements.statusTitle.textContent = '系統就緒';
+        this.elements.statusText.textContent = 'Web Worker 已成功初始化！';
+
+        // 隱藏載入條
+        setTimeout(() => {
+            this.elements.loadingBar.style.display = 'none';
+        }, 500);
+
+        // 載入預設模板
+        this.loadTemplate();
+
+        // 顯示上傳區域
+        setTimeout(() => {
+            this.elements.statusCard.style.display = 'none';
+            this.elements.uploadSection.style.display = 'block';
+            this.elements.uploadSection.classList.add('fade-in');
+        }, 1000);
+    }
+
+    /**
+     * Worker 進度更新
+     */
+    onWorkerProgress(payload, id) {
+        const { percent, message } = payload;
+
+        console.log(`📊 處理進度: ${percent}% - ${message}`);
+
+        // 更新進度條（如果 UI 元素存在）
+        if (this.elements.processingProgress) {
+            this.elements.processingProgress.style.width = `${percent}%`;
+        }
+
+        if (this.elements.processingMessage) {
+            this.elements.processingMessage.textContent = message;
+        }
+
+        this.showProgress(message);
+    }
+
+    /**
+     * Worker 處理完成
+     */
+    onWorkerResult(payload, id) {
+        const request = this.pendingRequests.get(id);
+        if (request) {
+            request.resolve(payload);
+            this.pendingRequests.delete(id);
+        }
+    }
+
+    /**
+     * Worker 錯誤
+     */
+    onWorkerError(payload, id) {
+        console.error('[Worker] 錯誤:', payload.message);
+
+        const request = this.pendingRequests.get(id);
+        if (request) {
+            request.reject(new Error(payload.message));
+            this.pendingRequests.delete(id);
+        }
+    }
+
+    /**
+     * Worker 錯誤事件
+     */
+    handleWorkerError(error) {
+        console.error('[Worker] 發生錯誤:', error);
+        this.showError('Worker 錯誤: ' + error.message);
     }
 
     /**
@@ -119,8 +304,24 @@ class OMRApp {
     async loadTemplate() {
         try {
             console.log('🔄 載入預設 OMR 模板...');
-            this.template = await this.imageProcessor.loadTemplate('./templates/default-template.json');
+
+            // 從 JSON 檔案載入模板
+            const response = await fetch('./templates/default-template.json');
+            if (!response.ok) {
+                throw new Error('模板檔案載入失敗');
+            }
+
+            this.template = await response.json();
             console.log(`✅ 模板載入成功: ${this.template.name}`);
+
+            // 如果使用 Worker，將模板傳送給 Worker
+            if (this.useWorker && this.worker) {
+                await this.sendWorkerMessage('load_template', {
+                    template: this.template
+                });
+                console.log('✅ 模板已傳送至 Worker');
+            }
+
         } catch (error) {
             console.error('❌ 模板載入失敗:', error);
             this.showError('模板載入失敗，將無法進行答案檢測');
@@ -247,6 +448,58 @@ class OMRApp {
             this.currentFile = file;
             console.log('✅ 影像載入成功');
 
+            if (this.useWorker) {
+                // 使用 Worker 處理
+                await this.processFileWithWorker(imgElement);
+            } else {
+                // 使用主執行緒處理
+                await this.processFileOnMainThread(imgElement);
+            }
+
+        } catch (error) {
+            console.error('❌ 處理檔案時發生錯誤:', error);
+            this.showError('處理失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 使用 Worker 處理影像
+     */
+    async processFileWithWorker(imgElement) {
+        try {
+            // 將 Image 轉換為 ImageData
+            const canvas = document.createElement('canvas');
+            canvas.width = imgElement.width;
+            canvas.height = imgElement.height;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(imgElement, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            // 發送給 Worker 處理
+            const results = await this.sendWorkerMessage('process_image', {
+                imageData: Array.from(imageData.data),
+                width: imageData.width,
+                height: imageData.height
+            });
+
+            // 將 ImageData 轉換回可顯示的格式
+            this.displayWorkerResults(results);
+
+            this.showSuccess('影像處理完成！');
+
+        } catch (error) {
+            console.error('❌ Worker 處理失敗:', error);
+            this.showError('處理失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 使用主執行緒處理影像（降級方案）
+     */
+    async processFileOnMainThread(imgElement) {
+        try {
             // 4. 處理影像（基礎預處理）
             this.showProgress('處理影像中...');
             const results = this.imageProcessor.preprocessImage(imgElement);
@@ -295,13 +548,74 @@ class OMRApp {
             this.showSuccess('影像處理完成！');
 
         } catch (error) {
-            console.error('❌ 處理檔案時發生錯誤:', error);
+            console.error('❌ 處理失敗:', error);
             this.showError('處理失敗：' + error.message);
         }
     }
 
     /**
-     * 顯示處理結果
+     * 顯示 Worker 回傳的結果
+     */
+    displayWorkerResults(results) {
+        // 隱藏上傳區域，顯示預覽區域
+        this.elements.uploadSection.style.display = 'none';
+        this.elements.previewSection.style.display = 'block';
+        this.elements.previewSection.classList.add('fade-in');
+
+        // 將 Worker 回傳的 ImageData 顯示到 Canvas
+        try {
+            this.imageDataToCanvas('canvas-original', results.original);
+            this.imageDataToCanvas('canvas-grayscale', results.grayscale);
+            this.imageDataToCanvas('canvas-blurred', results.blurred);
+            this.imageDataToCanvas('canvas-binary', results.binary);
+
+            if (results.corners) {
+                this.imageDataToCanvas('canvas-corners', results.corners);
+            }
+
+            if (results.corrected) {
+                this.imageDataToCanvas('canvas-corrected', results.corrected);
+            }
+
+            if (results.omr && results.omr.visualization) {
+                this.imageDataToCanvas('canvas-omr-result', results.omr.visualization);
+                this.displayOMRResults(results.omr);
+            }
+
+            console.log('✅ 處理結果已顯示在 Canvas');
+        } catch (error) {
+            console.error('❌ Canvas 顯示失敗:', error);
+            this.showError('結果顯示失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 將 ImageData 顯示到 Canvas
+     */
+    imageDataToCanvas(canvasId, imageDataObj) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) {
+            console.warn(`Canvas ${canvasId} 不存在`);
+            return;
+        }
+
+        const { data, width, height } = imageDataObj;
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        const imageData = new ImageData(
+            new Uint8ClampedArray(data),
+            width,
+            height
+        );
+
+        ctx.putImageData(imageData, 0, 0);
+    }
+
+    /**
+     * 顯示處理結果（主執行緒版本）
      */
     displayResults(results) {
         // 隱藏上傳區域，顯示預覽區域
@@ -377,10 +691,12 @@ class OMRApp {
     reprocessImage() {
         if (this.currentFile) {
             console.log('🔄 重新處理影像');
-            // 清理舊的 Mat
-            if (this.imageProcessor) {
+
+            // 清理舊的 Mat（主執行緒模式）
+            if (!this.useWorker && this.imageProcessor) {
                 this.imageProcessor.cleanup();
             }
+
             this.processFile(this.currentFile);
         }
     }
