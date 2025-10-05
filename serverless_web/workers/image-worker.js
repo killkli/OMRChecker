@@ -580,13 +580,17 @@ function detectAndParseAnswers(correctedMat, template) {
                 color = [128, 128, 128, 255];  // 灰色 - 未選
             }
 
+            // Safe MatVector creation and cleanup
+            const contourVector = new cv.MatVector();
+            contourVector.push_back(bubble.contour);
             cv.drawContours(
                 visualization,
-                new cv.MatVector([bubble.contour]),
+                contourVector,
                 0,
                 color,
                 2
             );
+            contourVector.delete();
         });
 
         // 清理 bubble contours
