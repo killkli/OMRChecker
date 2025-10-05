@@ -323,8 +323,8 @@ class OMRApp {
     try {
       console.log('🔄 載入預設 OMR 模板...');
 
-      // 從 JSON 檔案載入模板
-      const response = await fetch('./templates/default-template.json');
+      // 從 JSON 檔案載入模板（添加時間戳避免快取）
+      const response = await fetch(`./templates/default-template.json?t=${Date.now()}`);
       if (!response.ok) {
         throw new Error('模板檔案載入失敗');
       }

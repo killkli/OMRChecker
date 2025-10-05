@@ -24,6 +24,212 @@ const MessageType = {
   ERROR: 'error'
 };
 
+// ============================================================
+// Template Parsing Utilities (Python OMRChecker Compatible)
+// ============================================================
+
+/**
+ * Field types definitions (from Python constants.py)
+ */
+const FIELD_TYPES = {
+  'QTYPE_INT': {
+    bubbleValues: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+    direction: 'vertical'
+  },
+  'QTYPE_INT_FROM_1': {
+    bubbleValues: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+    direction: 'vertical'
+  },
+  'QTYPE_MCQ4': {
+    bubbleValues: ['A', 'B', 'C', 'D'],
+    direction: 'horizontal'
+  },
+  'QTYPE_MCQ5': {
+    bubbleValues: ['A', 'B', 'C', 'D', 'E'],
+    direction: 'horizontal'
+  }
+};
+
+/**
+ * Parse field string like "q1..5" into ["q1", "q2", "q3", "q4", "q5"]
+ */
+function parseFieldString(fieldString) {
+  if (fieldString.includes('..')) {
+    // Format: "prefix1..5" -> ["prefix1", "prefix2", "prefix3", "prefix4", "prefix5"]
+    const match = fieldString.match(/^([^\d]+)(\d+)\.\.(\d+)$/);
+    if (!match) {
+      throw new Error(`Invalid field string format: ${fieldString}`);
+    }
+    const [, prefix, startStr, endStr] = match;
+    const start = parseInt(startStr);
+    const end = parseInt(endStr);
+
+    if (start >= end) {
+      throw new Error(`Invalid range in field string: ${fieldString}, start must be less than end`);
+    }
+
+    const result = [];
+    for (let i = start; i <= end; i++) {
+      result.push(`${prefix}${i}`);
+    }
+    return result;
+  } else {
+    return [fieldString];
+  }
+}
+
+/**
+ * Parse field labels array, expanding ranges
+ */
+function parseFields(fieldLabels) {
+  const parsed = [];
+  for (const fieldString of fieldLabels) {
+    parsed.push(...parseFieldString(fieldString));
+  }
+  return parsed;
+}
+
+/**
+ * Convert Python fieldBlocks format to unified bubble list
+ */
+function parseFieldBlocks(template) {
+  if (!template.fieldBlocks) {
+    return null;
+  }
+
+  const bubbles = [];
+  const pageDimensions = template.pageDimensions || [850, 1202];
+  const globalBubbleDimensions = template.bubbleDimensions || [32, 32];
+
+  for (const [blockName, fieldBlock] of Object.entries(template.fieldBlocks)) {
+    // Pre-fill with field type defaults
+    let blockConfig = { ...fieldBlock };
+    if (fieldBlock.fieldType && FIELD_TYPES[fieldBlock.fieldType]) {
+      blockConfig = {
+        ...blockConfig,
+        ...FIELD_TYPES[fieldBlock.fieldType]
+      };
+    }
+
+    // Set defaults
+    const {
+      origin = [0, 0],
+      bubbleDimensions = globalBubbleDimensions,
+      bubbleValues = [],
+      bubblesGap = 40,
+      direction = 'vertical',
+      fieldLabels = [],
+      labelsGap = 60
+    } = blockConfig;
+
+    // Parse field labels
+    const parsedLabels = parseFields(fieldLabels);
+
+    // Generate bubble grid (similar to Python's generate_bubble_grid)
+    let leadPoint = [origin[0], origin[1]];
+
+    for (const fieldLabel of parsedLabels) {
+      let bubblePoint = [...leadPoint];
+
+      for (const bubbleValue of bubbleValues) {
+        bubbles.push({
+          x: Math.round(bubblePoint[0]),
+          y: Math.round(bubblePoint[1]),
+          fieldLabel: fieldLabel,
+          fieldValue: bubbleValue,
+          width: bubbleDimensions[0],
+          height: bubbleDimensions[1]
+        });
+
+        // Increment for next bubble value in this field
+        if (direction === 'vertical') {
+          bubblePoint[1] += bubblesGap; // y-increment (0-9 below each other)
+        } else {
+          bubblePoint[0] += bubblesGap; // x-increment (A/B/C/D side by side)
+        }
+      }
+
+      // Move lead point for next field label
+      if (direction === 'vertical') {
+        leadPoint[0] += labelsGap; // x-increment for next digit
+      } else {
+        leadPoint[1] += labelsGap; // y-increment for next question
+      }
+    }
+  }
+
+  return {
+    bubbles,
+    pageDimensions,
+    answers: template.answerKey || template.answers || {}
+  };
+}
+
+/**
+ * Parse our original regions format
+ */
+function parseRegionsFormat(template) {
+  if (!template.layout || !template.layout.regions) {
+    return null;
+  }
+
+  const bubbles = [];
+  const regions = template.layout.regions;
+
+  for (const region of regions) {
+    const { origin, questions, options } = region;
+    const startQ = questions.start;
+    const endQ = questions.end;
+    const questionGap = questions.gap || 65;
+    const optionGap = options.gap || 80;
+    const optionValues = options.values || ['A', 'B', 'C', 'D'];
+
+    let yPos = origin.y;
+    for (let qNum = startQ; qNum <= endQ; qNum++) {
+      let xPos = origin.x;
+      for (const optValue of optionValues) {
+        bubbles.push({
+          x: Math.round(xPos),
+          y: Math.round(yPos),
+          fieldLabel: `${qNum}`,
+          fieldValue: optValue,
+          width: template.bubble?.diameter || 32,
+          height: template.bubble?.diameter || 32
+        });
+        xPos += optionGap;
+      }
+      yPos += questionGap;
+    }
+  }
+
+  return {
+    bubbles,
+    pageDimensions: [template.page?.width || 850, template.page?.height || 1202],
+    answers: template.answerKey || template.answers || {}
+  };
+}
+
+/**
+ * Unified template parser - auto-detects format
+ */
+function parseTemplate(template) {
+  // Try Python fieldBlocks format first
+  const fieldBlocksResult = parseFieldBlocks(template);
+  if (fieldBlocksResult) {
+    console.log('[Worker] Detected Python fieldBlocks format');
+    return fieldBlocksResult;
+  }
+
+  // Try our regions format
+  const regionsResult = parseRegionsFormat(template);
+  if (regionsResult) {
+    console.log('[Worker] Detected regions format');
+    return regionsResult;
+  }
+
+  throw new Error('Unknown template format - must have either fieldBlocks or layout.regions');
+}
+
 /**
  * 處理從主執行緒來的訊息
  */
@@ -459,12 +665,18 @@ function sortCorners(approx) {
 }
 
 /**
- * 檢測並解析答案
+ * 檢測並解析答案（使用unified template format）
  */
 function detectAndParseAnswers(correctedMat, template) {
   const tempMats = [];
 
   try {
+    // Parse template to get expected bubble positions
+    const parsedTemplate = parseTemplate(template);
+    const { bubbles: expectedBubbles, answers: answerKey } = parsedTemplate;
+
+    console.log(`[Worker] Expected ${expectedBubbles.length} bubbles from template`);
+
     // 1. 轉換為灰階
     const gray = new cv.Mat();
     cv.cvtColor(correctedMat, gray, cv.COLOR_RGBA2GRAY);
@@ -475,111 +687,79 @@ function detectAndParseAnswers(correctedMat, template) {
     cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
     tempMats.push(binary);
 
-    // 3. 查找輪廓
-    const contours = new cv.MatVector();
-    const hierarchy = new cv.Mat();
-    cv.findContours(
-      binary,
-      contours,
-      hierarchy,
-      cv.RETR_EXTERNAL,
-      cv.CHAIN_APPROX_SIMPLE
-    );
-    tempMats.push(hierarchy);
-
-    // 4. 過濾標記輪廓
-    const bubbles = [];
-    const minArea = template.bubble.minArea;
-    const maxArea = template.bubble.maxArea;
-
-    for (let i = 0; i < contours.size(); i++) {
-      const contour = contours.get(i);
-      const area = cv.contourArea(contour);
-
-      if (area >= minArea && area <= maxArea) {
-        const rect = cv.boundingRect(contour);
-        const aspectRatio = rect.width / rect.height;
-
-        // 檢查長寬比（應接近 1.0 為圓形）
-        if (aspectRatio >= 0.7 && aspectRatio <= 1.3) {
-          bubbles.push({
-            contour: contour.clone(),
-            rect,
-            area
-          });
-        }
-      }
-
-      contour.delete();
-    }
-    contours.delete();
-
-    // 5. 按位置排序（由上到下，由左到右）
-    bubbles.sort((a, b) => {
-      const yDiff = a.rect.y - b.rect.y;
-      if (Math.abs(yDiff) > 20) {  // 不同行
-        return yDiff;
-      }
-      return a.rect.x - b.rect.x;  // 同一行，比較 x
-    });
-
-    // 6. 計算填充率並解析答案
+    // 3. Analyze each expected bubble's fill ratio
     const answers = {};
-    const questionsPerRow = template.layout.questionsPerRow;
-    const optionsPerQuestion = template.layout.optionsPerQuestion;
+    const fillThreshold = template.detection?.fillThreshold ||
+                          template.bubble?.fillThreshold || 0.4;
 
-    bubbles.forEach((bubble, idx) => {
-      const questionNo = Math.floor(idx / optionsPerQuestion) + 1;
-      const optionIdx = idx % optionsPerQuestion;
-      const optionLabel = String.fromCharCode(65 + optionIdx);  // A, B, C, D...
+    const visualizationData = [];
 
-      // 計算填充率
-      const mask = new cv.Mat.zeros(binary.rows, binary.cols, cv.CV_8U);
-      const maskVector = new cv.MatVector();
-      maskVector.push_back(bubble.contour);
-      cv.drawContours(mask, maskVector, 0, [255, 255, 255, 255], -1);
-      maskVector.delete();
+    for (const expectedBubble of expectedBubbles) {
+      const { x, y, width, height, fieldLabel, fieldValue } = expectedBubble;
 
-      // Safe ROI operations (track all temporary Mats)
-      const binaryRoi = binary.roi(bubble.rect);
-      const maskRoi = mask.roi(bubble.rect);
-      const andResult = binaryRoi.and(maskRoi);
-      const filledPixels = cv.countNonZero(andResult);
+      // Create ROI rect for this bubble
+      const roi = new cv.Rect(
+        Math.max(0, x - Math.floor(width / 2)),
+        Math.max(0, y - Math.floor(height / 2)),
+        width,
+        height
+      );
 
-      // Release temporary Mats
-      andResult.delete();
-      maskRoi.delete();
+      // Ensure ROI is within image bounds
+      if (roi.x + roi.width > binary.cols) {
+        roi.width = binary.cols - roi.x;
+      }
+      if (roi.y + roi.height > binary.rows) {
+        roi.height = binary.rows - roi.y;
+      }
+
+      if (roi.width <= 0 || roi.height <= 0) {
+        console.warn(`[Worker] Invalid ROI for bubble ${fieldLabel}=${fieldValue}:`, roi);
+        continue;
+      }
+
+      // Extract ROI
+      const binaryRoi = binary.roi(roi);
+      const filledPixels = cv.countNonZero(binaryRoi);
       binaryRoi.delete();
 
-      const totalPixels = bubble.area;
+      const totalPixels = roi.width * roi.height;
       const fillRatio = filledPixels / totalPixels;
 
-      mask.delete();
+      // Check if filled
+      const isFilled = fillRatio > fillThreshold;
 
-      // 判斷是否填塗（閾值可調整）
-      if (fillRatio > template.detection.fillThreshold) {
-        if (!answers[questionNo]) {
-          answers[questionNo] = [];
+      if (isFilled) {
+        if (!answers[fieldLabel]) {
+          answers[fieldLabel] = [];
         }
-        answers[questionNo].push(optionLabel);
+        answers[fieldLabel].push(fieldValue);
       }
-    });
 
-    // 7. 計算分數
-    const scoring = calculateScore(answers, template.answers);
+      // Store for visualization
+      visualizationData.push({
+        x, y, width, height,
+        fieldLabel, fieldValue,
+        isFilled,
+        fillRatio
+      });
+    }
 
-    // 8. 建立視覺化結果
+    console.log(`[Worker] Detected answers:`, answers);
+
+    // 計算分數
+    const scoring = calculateScore(answers, answerKey);
+
+    // 建立視覺化結果
     const visualization = correctedMat.clone();
 
-    bubbles.forEach((bubble, idx) => {
-      const questionNo = Math.floor(idx / optionsPerQuestion) + 1;
-      const optionIdx = idx % optionsPerQuestion;
-      const optionLabel = String.fromCharCode(65 + optionIdx);
+    for (const data of visualizationData) {
+      const { x, y, width, height, fieldLabel, fieldValue, isFilled } = data;
 
-      const studentAnswers = answers[questionNo] || [];
-      const isSelected = studentAnswers.includes(optionLabel);
-      const correctAnswer = template.answers[questionNo];
-      const isCorrect = correctAnswer && correctAnswer.includes(optionLabel);
+      const studentAnswers = answers[fieldLabel] || [];
+      const isSelected = studentAnswers.includes(fieldValue);
+      const correctAnswer = answerKey[fieldLabel];
+      const isCorrect = correctAnswer && correctAnswer.includes(fieldValue);
 
       // 選擇顏色
       let color;
@@ -593,21 +773,15 @@ function detectAndParseAnswers(correctedMat, template) {
         color = [128, 128, 128, 255];  // 灰色 - 未選
       }
 
-      // Safe MatVector creation and cleanup
-      const contourVector = new cv.MatVector();
-      contourVector.push_back(bubble.contour);
-      cv.drawContours(
+      // Draw circle at bubble position
+      cv.circle(
         visualization,
-        contourVector,
-        0,
+        new cv.Point(x, y),
+        Math.floor(Math.max(width, height) / 2),
         color,
         2
       );
-      contourVector.delete();
-    });
-
-    // 清理 bubble contours
-    bubbles.forEach(b => b.contour.delete());
+    }
 
     return {
       answers,
