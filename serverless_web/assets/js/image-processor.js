@@ -266,4 +266,300 @@ class ImageProcessor {
             aspectRatio: (this.currentImage.width / this.currentImage.height).toFixed(2)
         };
     }
+
+    // ==================== Stage 3: 輪廓檢測與透視校正 ====================
+
+    /**
+     * Canny 邊緣檢測
+     * @param {cv.Mat} src - 來源影像（灰階）
+     * @param {number} threshold1 - 第一個閾值（預設 50）
+     * @param {number} threshold2 - 第二個閾值（預設 150）
+     * @returns {cv.Mat} - 邊緣影像
+     */
+    cannyEdgeDetection(src, threshold1 = 50, threshold2 = 150) {
+        const edges = new cv.Mat();
+        cv.Canny(src, edges, threshold1, threshold2, 3, false);
+        this.processedMats.push(edges);
+        return edges;
+    }
+
+    /**
+     * 查找輪廓
+     * @param {cv.Mat} binary - 二值化影像
+     * @returns {cv.MatVector} - 輪廓陣列
+     */
+    findContours(binary) {
+        const contours = new cv.MatVector();
+        const hierarchy = new cv.Mat();
+
+        cv.findContours(
+            binary,
+            contours,
+            hierarchy,
+            cv.RETR_EXTERNAL,
+            cv.CHAIN_APPROX_SIMPLE
+        );
+
+        hierarchy.delete();
+        return contours;
+    }
+
+    /**
+     * 篩選四邊形輪廓
+     * @param {cv.MatVector} contours - 所有輪廓
+     * @param {number} imageArea - 影像總面積
+     * @param {number} minAreaRatio - 最小面積比例（預設 0.2 = 20%）
+     * @returns {Array} - 四邊形輪廓陣列
+     */
+    filterQuadrilateralContours(contours, imageArea, minAreaRatio = 0.2) {
+        const quadContours = [];
+        const minArea = imageArea * minAreaRatio;
+
+        for (let i = 0; i < contours.size(); i++) {
+            const contour = contours.get(i);
+            const area = cv.contourArea(contour);
+
+            // 過濾太小的輪廓
+            if (area < minArea) {
+                continue;
+            }
+
+            // 使用多邊形逼近
+            const peri = cv.arcLength(contour, true);
+            const approx = new cv.Mat();
+            cv.approxPolyDP(contour, approx, 0.02 * peri, true);
+
+            // 檢查是否為四邊形
+            if (approx.rows === 4) {
+                quadContours.push({
+                    contour: approx,
+                    area: area
+                });
+            } else {
+                approx.delete();
+            }
+        }
+
+        // 依面積排序（由大到小）
+        quadContours.sort((a, b) => b.area - a.area);
+
+        // 返回輪廓 Mat（不包含 metadata）
+        return quadContours.map(q => q.contour);
+    }
+
+    /**
+     * 排序角點（左上、右上、右下、左下）
+     * @param {Array} points - 四個角點 [{x, y}, ...]
+     * @returns {Array} - 排序後的角點
+     */
+    orderCorners(points) {
+        if (points.length !== 4) {
+            throw new Error('必須提供 4 個角點');
+        }
+
+        // 計算每個點的 x + y 和 x - y
+        const sums = points.map(p => ({ point: p, sum: p.x + p.y }));
+        const diffs = points.map(p => ({ point: p, diff: p.x - p.y }));
+
+        // 排序
+        sums.sort((a, b) => a.sum - b.sum);
+        diffs.sort((a, b) => a.diff - b.diff);
+
+        // 左上：x + y 最小
+        const topLeft = sums[0].point;
+
+        // 右下：x + y 最大
+        const bottomRight = sums[3].point;
+
+        // 右上：x - y 最大
+        const topRight = diffs[3].point;
+
+        // 左下：x - y 最小
+        const bottomLeft = diffs[0].point;
+
+        return [topLeft, topRight, bottomRight, bottomLeft];
+    }
+
+    /**
+     * 計算透視變換矩陣
+     * @param {Array} srcPoints - 來源四個角點
+     * @param {Array} dstPoints - 目標四個角點
+     * @returns {cv.Mat} - 3x3 變換矩陣
+     */
+    getPerspectiveTransform(srcPoints, dstPoints) {
+        // 將點陣列轉換為 cv.Mat
+        const srcMat = cv.matFromArray(4, 1, cv.CV_32FC2,
+            srcPoints.flatMap(p => [p.x, p.y])
+        );
+
+        const dstMat = cv.matFromArray(4, 1, cv.CV_32FC2,
+            dstPoints.flatMap(p => [p.x, p.y])
+        );
+
+        const M = cv.getPerspectiveTransform(srcMat, dstMat);
+
+        srcMat.delete();
+        dstMat.delete();
+
+        return M;
+    }
+
+    /**
+     * 應用透視變換
+     * @param {cv.Mat} src - 來源影像
+     * @param {cv.Mat} M - 變換矩陣
+     * @param {number} width - 輸出寬度
+     * @param {number} height - 輸出高度
+     * @returns {cv.Mat} - 校正後的影像
+     */
+    applyPerspectiveTransform(src, M, width, height) {
+        const warped = new cv.Mat();
+        const dsize = new cv.Size(width, height);
+
+        cv.warpPerspective(
+            src,
+            warped,
+            M,
+            dsize,
+            cv.INTER_LINEAR,
+            cv.BORDER_CONSTANT,
+            new cv.Scalar(255, 255, 255, 255)
+        );
+
+        this.processedMats.push(warped);
+        return warped;
+    }
+
+    /**
+     * 完整的透視校正流程
+     * @param {cv.Mat} src - 來源影像
+     * @returns {Object} - { corrected: Mat, corners: Array, visualization: Mat }
+     */
+    correctPerspective(src) {
+        let gray = null;
+        let blurred = null;
+        let binary = null;
+        let edges = null;
+        let contours = null;
+        let visualization = null;
+
+        try {
+            console.log('🔄 開始透視校正流程...');
+
+            // 1. 預處理：灰階、模糊、二值化
+            gray = this.convertToGrayscale(src);
+            blurred = this.gaussianBlur(gray, 5);
+            binary = this.adaptiveThreshold(blurred);
+            console.log('  ✅ 預處理完成');
+
+            // 2. Canny 邊緣檢測
+            edges = this.cannyEdgeDetection(blurred);
+            console.log('  ✅ 邊緣檢測完成');
+
+            // 3. 查找輪廓
+            contours = this.findContours(edges);
+            console.log(`  ✅ 找到 ${contours.size()} 個輪廓`);
+
+            // 4. 篩選四邊形輪廓
+            const imageArea = src.rows * src.cols;
+            const quadContours = this.filterQuadrilateralContours(contours, imageArea);
+
+            if (quadContours.length === 0) {
+                throw new Error('未找到答案卡輪廓，請確保答案卡完整且清晰可見');
+            }
+
+            console.log(`  ✅ 找到 ${quadContours.length} 個四邊形輪廓`);
+
+            // 5. 取得最大的四邊形（假設為答案卡）
+            const paperContour = quadContours[0];
+
+            // 6. 提取角點
+            const corners = [];
+            for (let i = 0; i < paperContour.rows; i++) {
+                corners.push({
+                    x: paperContour.data32S[i * 2],
+                    y: paperContour.data32S[i * 2 + 1]
+                });
+            }
+
+            console.log('  📍 檢測到的角點:', corners);
+
+            // 7. 排序角點
+            const orderedCorners = this.orderCorners(corners);
+            console.log('  ✅ 角點排序完成');
+
+            // 8. 計算輸出尺寸（A4 比例，寬度 850px）
+            const outputWidth = 850;
+            const outputHeight = Math.round(outputWidth * 1.414); // A4 比例
+
+            // 9. 定義目標點（矩形）
+            const dstPoints = [
+                { x: 0, y: 0 },
+                { x: outputWidth - 1, y: 0 },
+                { x: outputWidth - 1, y: outputHeight - 1 },
+                { x: 0, y: outputHeight - 1 }
+            ];
+
+            // 10. 計算透視變換矩陣
+            const M = this.getPerspectiveTransform(orderedCorners, dstPoints);
+            console.log('  ✅ 透視變換矩陣計算完成');
+
+            // 11. 應用透視變換
+            const corrected = this.applyPerspectiveTransform(src, M, outputWidth, outputHeight);
+            console.log(`  ✅ 透視校正完成 (${outputWidth}x${outputHeight})`);
+
+            // 12. 建立視覺化（在原圖上標記角點）
+            visualization = src.clone();
+            for (let i = 0; i < orderedCorners.length; i++) {
+                const corner = orderedCorners[i];
+                const nextCorner = orderedCorners[(i + 1) % 4];
+
+                // 畫圓標記角點
+                cv.circle(
+                    visualization,
+                    new cv.Point(corner.x, corner.y),
+                    10,
+                    new cv.Scalar(0, 255, 0, 255),
+                    -1
+                );
+
+                // 畫線連接角點
+                cv.line(
+                    visualization,
+                    new cv.Point(corner.x, corner.y),
+                    new cv.Point(nextCorner.x, nextCorner.y),
+                    new cv.Scalar(255, 0, 0, 255),
+                    3
+                );
+            }
+
+            this.processedMats.push(visualization);
+
+            // 清理中間結果
+            M.delete();
+            quadContours.forEach(c => c.delete());
+            contours.delete();
+
+            console.log('✅ 透視校正流程完成！');
+
+            return {
+                corrected: corrected,
+                corners: orderedCorners,
+                visualization: visualization
+            };
+
+        } catch (error) {
+            console.error('❌ 透視校正失敗:', error);
+
+            // 清理資源
+            if (gray) gray.delete();
+            if (blurred) blurred.delete();
+            if (binary) binary.delete();
+            if (edges) edges.delete();
+            if (contours) contours.delete();
+            if (visualization) visualization.delete();
+
+            throw error;
+        }
+    }
 }

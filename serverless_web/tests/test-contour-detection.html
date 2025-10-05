@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>輪廓檢測與透視校正測試</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .status {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 2rem;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status.ready {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .test-controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+
+        .test-results {
+            margin-bottom: 2rem;
+        }
+
+        .test-case {
+            border: 2px solid #e0e0e0;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .test-case.passed {
+            border-color: #28a745;
+            background: #f0f9f4;
+        }
+
+        .test-case.failed {
+            border-color: #dc3545;
+            background: #fef5f6;
+        }
+
+        .test-case h3 {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .test-case .icon {
+            font-size: 1.5rem;
+        }
+
+        .canvas-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .canvas-item {
+            border: 2px solid #e0e0e0;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            background: #f9f9f9;
+        }
+
+        .canvas-item h3 {
+            margin-bottom: 0.75rem;
+            color: #555;
+            font-size: 0.95rem;
+        }
+
+        canvas {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 0.25rem;
+            background: white;
+        }
+
+        .log-console {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 2rem;
+        }
+
+        .log-entry {
+            margin-bottom: 0.25rem;
+        }
+
+        .log-entry.success {
+            color: #4ec9b0;
+        }
+
+        .log-entry.error {
+            color: #f48771;
+        }
+
+        .log-entry.info {
+            color: #4fc1ff;
+        }
+
+        input[type="file"] {
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 輪廓檢測與透視校正測試</h1>
+
+        <div id="status" class="status loading">
+            ⏳ 正在載入 OpenCV.js...
+        </div>
+
+        <div class="test-controls">
+            <input type="file" id="file-input" accept="image/*" style="display: none;">
+            <button id="upload-btn" class="btn btn-primary" disabled>📁 上傳測試影像</button>
+            <button id="run-all-btn" class="btn btn-success" disabled>▶️ 執行所有測試</button>
+            <button id="clear-btn" class="btn btn-warning">🗑️ 清除結果</button>
+        </div>
+
+        <div id="test-results" class="test-results"></div>
+
+        <div class="canvas-grid" id="canvas-grid"></div>
+
+        <div class="log-console" id="log-console"></div>
+    </div>
+
+    <!-- OpenCV.js 初始化 -->
+    <script>
+        var Module = {
+            onRuntimeInitialized() {
+                window.testRunner.onOpenCVReady();
+            }
+        };
+    </script>
+
+    <!-- 載入 OpenCV.js -->
+    <script async src="../assets/lib/opencv.js"></script>
+
+    <!-- 測試腳本 -->
+    <script>
+        class ContourDetectionTestRunner {
+            constructor() {
+                this.testResults = [];
+                this.processor = null;
+                this.currentImage = null;
+
+                this.elements = {
+                    status: document.getElementById('status'),
+                    uploadBtn: document.getElementById('upload-btn'),
+                    runAllBtn: document.getElementById('run-all-btn'),
+                    clearBtn: document.getElementById('clear-btn'),
+                    fileInput: document.getElementById('file-input'),
+                    testResults: document.getElementById('test-results'),
+                    canvasGrid: document.getElementById('canvas-grid'),
+                    logConsole: document.getElementById('log-console')
+                };
+
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                this.elements.uploadBtn.addEventListener('click', () => {
+                    this.elements.fileInput.click();
+                });
+
+                this.elements.fileInput.addEventListener('change', (e) => {
+                    this.handleFileUpload(e);
+                });
+
+                this.elements.runAllBtn.addEventListener('click', () => {
+                    this.runAllTests();
+                });
+
+                this.elements.clearBtn.addEventListener('click', () => {
+                    this.clearResults();
+                });
+            }
+
+            onOpenCVReady() {
+                this.log('OpenCV.js 載入完成！', 'success');
+                this.updateStatus('ready', '✅ OpenCV.js 已就緒');
+
+                // 啟用按鈕
+                this.elements.uploadBtn.disabled = false;
+                this.elements.runAllBtn.disabled = false;
+
+                // 動態載入 ImageProcessor
+                this.loadImageProcessor();
+            }
+
+            async loadImageProcessor() {
+                try {
+                    // 載入 ImageProcessor 類別
+                    const script = document.createElement('script');
+                    script.src = '../assets/js/image-processor.js';
+                    script.onload = () => {
+                        this.processor = new ImageProcessor();
+                        this.log('ImageProcessor 已初始化', 'success');
+                    };
+                    script.onerror = () => {
+                        this.log('ImageProcessor 載入失敗', 'error');
+                    };
+                    document.head.appendChild(script);
+                } catch (error) {
+                    this.log('載入 ImageProcessor 時發生錯誤: ' + error.message, 'error');
+                }
+            }
+
+            async handleFileUpload(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                try {
+                    this.log(`載入檔案: ${file.name}`, 'info');
+
+                    const img = await this.loadImage(file);
+                    this.currentImage = img;
+
+                    this.log(`影像載入成功 (${img.width}x${img.height})`, 'success');
+
+                    // 自動執行測試
+                    this.runAllTests();
+
+                } catch (error) {
+                    this.log('載入影像失敗: ' + error.message, 'error');
+                }
+            }
+
+            loadImage(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => resolve(img);
+                        img.onerror = () => reject(new Error('影像載入失敗'));
+                        img.src = e.target.result;
+                    };
+                    reader.onerror = () => reject(new Error('檔案讀取失敗'));
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            async runAllTests() {
+                if (!this.currentImage) {
+                    this.log('請先上傳測試影像', 'error');
+                    return;
+                }
+
+                this.clearResults();
+                this.log('開始執行測試套件...', 'info');
+
+                const tests = [
+                    { name: 'Canny 邊緣檢測', fn: () => this.testCannyEdgeDetection() },
+                    { name: '輪廓查找', fn: () => this.testFindContours() },
+                    { name: '四邊形輪廓篩選', fn: () => this.testQuadrilateralFiltering() },
+                    { name: '角點排序', fn: () => this.testCornerOrdering() },
+                    { name: '透視變換矩陣計算', fn: () => this.testPerspectiveTransformMatrix() },
+                    { name: '完整透視校正流程', fn: () => this.testCompletePerspectiveCorrection() }
+                ];
+
+                for (const test of tests) {
+                    try {
+                        this.log(`執行測試: ${test.name}`, 'info');
+                        await test.fn();
+                        this.addTestResult(test.name, true, '測試通過');
+                    } catch (error) {
+                        this.log(`測試失敗: ${test.name} - ${error.message}`, 'error');
+                        this.addTestResult(test.name, false, error.message);
+                    }
+                }
+
+                this.log('測試套件執行完畢', 'success');
+            }
+
+            // ==================== 測試案例 ====================
+
+            testCannyEdgeDetection() {
+                if (!this.processor || !this.processor.cannyEdgeDetection) {
+                    throw new Error('cannyEdgeDetection 方法尚未實現');
+                }
+
+                const mat = cv.imread(this.currentImage);
+                let gray = new cv.Mat();
+                cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+
+                const edges = this.processor.cannyEdgeDetection(gray, 50, 150);
+
+                // 驗證結果
+                if (!edges || edges.rows === 0 || edges.cols === 0) {
+                    throw new Error('Canny 邊緣檢測返回空結果');
+                }
+
+                this.displayCanvas('Canny 邊緣檢測', edges);
+
+                // 清理
+                mat.delete();
+                gray.delete();
+                edges.delete();
+
+                this.log('Canny 邊緣檢測測試通過', 'success');
+            }
+
+            testFindContours() {
+                if (!this.processor || !this.processor.findContours) {
+                    throw new Error('findContours 方法尚未實現');
+                }
+
+                const mat = cv.imread(this.currentImage);
+                let gray = new cv.Mat();
+                let binary = new cv.Mat();
+
+                cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+                cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+
+                const contours = this.processor.findContours(binary);
+
+                // 驗證結果
+                if (!contours || contours.length === 0) {
+                    throw new Error('未找到任何輪廓');
+                }
+
+                this.log(`找到 ${contours.length} 個輪廓`, 'success');
+
+                // 視覺化輪廓
+                let visual = mat.clone();
+                for (let i = 0; i < contours.length; i++) {
+                    const color = new cv.Scalar(0, 255, 0, 255);
+                    cv.drawContours(visual, contours, i, color, 2);
+                }
+                this.displayCanvas('找到的輪廓', visual);
+
+                // 清理
+                mat.delete();
+                gray.delete();
+                binary.delete();
+                visual.delete();
+                contours.forEach(c => c.delete());
+
+                this.log('輪廓查找測試通過', 'success');
+            }
+
+            testQuadrilateralFiltering() {
+                if (!this.processor || !this.processor.filterQuadrilateralContours) {
+                    throw new Error('filterQuadrilateralContours 方法尚未實現');
+                }
+
+                const mat = cv.imread(this.currentImage);
+                let gray = new cv.Mat();
+                let binary = new cv.Mat();
+
+                cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+                cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+
+                const allContours = this.processor.findContours(binary);
+                const quadContours = this.processor.filterQuadrilateralContours(allContours, mat.rows * mat.cols);
+
+                // 驗證結果
+                if (!quadContours || quadContours.length === 0) {
+                    throw new Error('未找到四邊形輪廓');
+                }
+
+                this.log(`篩選出 ${quadContours.length} 個四邊形輪廓`, 'success');
+
+                // 視覺化四邊形輪廓
+                let visual = mat.clone();
+                for (let i = 0; i < quadContours.length; i++) {
+                    const color = new cv.Scalar(255, 0, 0, 255);
+                    cv.drawContours(visual, [quadContours[i]], 0, color, 3);
+                }
+                this.displayCanvas('四邊形輪廓', visual);
+
+                // 清理
+                mat.delete();
+                gray.delete();
+                binary.delete();
+                visual.delete();
+                allContours.forEach(c => c.delete());
+                quadContours.forEach(c => c.delete());
+
+                this.log('四邊形輪廓篩選測試通過', 'success');
+            }
+
+            testCornerOrdering() {
+                if (!this.processor || !this.processor.orderCorners) {
+                    throw new Error('orderCorners 方法尚未實現');
+                }
+
+                // 建立測試點（不按順序）
+                const testPoints = [
+                    { x: 300, y: 400 },  // 右下
+                    { x: 100, y: 100 },  // 左上
+                    { x: 400, y: 100 },  // 右上
+                    { x: 50, y: 350 }    // 左下
+                ];
+
+                const ordered = this.processor.orderCorners(testPoints);
+
+                // 驗證順序：左上、右上、右下、左下
+                if (ordered.length !== 4) {
+                    throw new Error('返回的角點數量不正確');
+                }
+
+                // 左上角應該是 x 和 y 最小的點
+                if (ordered[0].x !== 100 || ordered[0].y !== 100) {
+                    throw new Error('左上角排序錯誤');
+                }
+
+                this.log('角點排序：左上 → 右上 → 右下 → 左下', 'success');
+                this.log(`結果: [${ordered.map(p => `(${p.x},${p.y})`).join(', ')}]`, 'info');
+
+                this.log('角點排序測試通過', 'success');
+            }
+
+            testPerspectiveTransformMatrix() {
+                if (!this.processor || !this.processor.getPerspectiveTransform) {
+                    throw new Error('getPerspectiveTransform 方法尚未實現');
+                }
+
+                // 來源點（傾斜的四邊形）
+                const srcPoints = [
+                    { x: 100, y: 100 },
+                    { x: 400, y: 80 },
+                    { x: 420, y: 400 },
+                    { x: 80, y: 420 }
+                ];
+
+                // 目標點（正方形）
+                const dstPoints = [
+                    { x: 0, y: 0 },
+                    { x: 500, y: 0 },
+                    { x: 500, y: 500 },
+                    { x: 0, y: 500 }
+                ];
+
+                const matrix = this.processor.getPerspectiveTransform(srcPoints, dstPoints);
+
+                // 驗證矩陣
+                if (!matrix || matrix.rows !== 3 || matrix.cols !== 3) {
+                    throw new Error('透視變換矩陣格式錯誤');
+                }
+
+                this.log('透視變換矩陣計算成功', 'success');
+                matrix.delete();
+
+                this.log('透視變換矩陣測試通過', 'success');
+            }
+
+            testCompletePerspectiveCorrection() {
+                if (!this.processor || !this.processor.correctPerspective) {
+                    throw new Error('correctPerspective 方法尚未實現');
+                }
+
+                const mat = cv.imread(this.currentImage);
+
+                const result = this.processor.correctPerspective(mat);
+
+                // 驗證結果
+                if (!result || !result.corrected) {
+                    throw new Error('透視校正失敗');
+                }
+
+                if (!result.corners || result.corners.length !== 4) {
+                    throw new Error('角點檢測失敗');
+                }
+
+                this.log(`檢測到的角點: ${JSON.stringify(result.corners)}`, 'info');
+
+                // 顯示結果
+                this.displayCanvas('原始影像', mat);
+                this.displayCanvas('校正後影像', result.corrected);
+
+                if (result.visualization) {
+                    this.displayCanvas('角點視覺化', result.visualization);
+                    result.visualization.delete();
+                }
+
+                // 清理
+                mat.delete();
+                result.corrected.delete();
+
+                this.log('完整透視校正測試通過', 'success');
+            }
+
+            // ==================== 輔助方法 ====================
+
+            displayCanvas(title, mat) {
+                const canvasItem = document.createElement('div');
+                canvasItem.className = 'canvas-item';
+
+                const h3 = document.createElement('h3');
+                h3.textContent = title;
+
+                const canvas = document.createElement('canvas');
+                canvas.id = `canvas-${Date.now()}-${Math.random()}`;
+
+                canvasItem.appendChild(h3);
+                canvasItem.appendChild(canvas);
+                this.elements.canvasGrid.appendChild(canvasItem);
+
+                cv.imshow(canvas, mat);
+            }
+
+            addTestResult(name, passed, message) {
+                const testCase = document.createElement('div');
+                testCase.className = `test-case ${passed ? 'passed' : 'failed'}`;
+
+                const icon = passed ? '✅' : '❌';
+                const status = passed ? '通過' : '失敗';
+
+                testCase.innerHTML = `
+                    <h3><span class="icon">${icon}</span> ${name} - ${status}</h3>
+                    <p>${message}</p>
+                `;
+
+                this.elements.testResults.appendChild(testCase);
+                this.testResults.push({ name, passed, message });
+            }
+
+            log(message, type = 'info') {
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type}`;
+                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                this.elements.logConsole.appendChild(entry);
+                this.elements.logConsole.scrollTop = this.elements.logConsole.scrollHeight;
+
+                console.log(message);
+            }
+
+            updateStatus(status, message) {
+                this.elements.status.className = `status ${status}`;
+                this.elements.status.textContent = message;
+            }
+
+            clearResults() {
+                this.elements.testResults.innerHTML = '';
+                this.elements.canvasGrid.innerHTML = '';
+                this.testResults = [];
+                this.log('清除所有測試結果', 'info');
+            }
+        }
+
+        // 初始化測試執行器
+        window.testRunner = new ContourDetectionTestRunner();
+    </script>
+</body>
+</html>

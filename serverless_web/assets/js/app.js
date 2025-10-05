@@ -229,11 +229,29 @@ class OMRApp {
             this.currentFile = file;
             console.log('✅ 影像載入成功');
 
-            // 4. 處理影像
+            // 4. 處理影像（基礎預處理）
             this.showProgress('處理影像中...');
             const results = this.imageProcessor.preprocessImage(imgElement);
 
-            // 5. 顯示結果
+            // 5. 透視校正（Stage 3 新功能）
+            try {
+                this.showProgress('執行透視校正...');
+                const mat = this.imageProcessor.imageToMat(imgElement);
+                const perspectiveResult = this.imageProcessor.correctPerspective(mat);
+
+                results.corners = perspectiveResult.visualization;
+                results.corrected = perspectiveResult.corrected;
+
+                console.log('✅ 透視校正完成');
+                console.log('  角點座標:', perspectiveResult.corners);
+
+                mat.delete();
+            } catch (error) {
+                console.warn('⚠️ 透視校正失敗:', error.message);
+                this.showError('透視校正失敗: ' + error.message + '\n將顯示基礎處理結果');
+            }
+
+            // 6. 顯示結果
             this.displayResults(results);
 
             this.showSuccess('影像處理完成！');
@@ -259,6 +277,16 @@ class OMRApp {
             cv.imshow('canvas-grayscale', results.grayscale);
             cv.imshow('canvas-blurred', results.blurred);
             cv.imshow('canvas-binary', results.binary);
+
+            // Stage 3: 顯示透視校正結果
+            if (results.corners) {
+                cv.imshow('canvas-corners', results.corners);
+            }
+
+            if (results.corrected) {
+                cv.imshow('canvas-corrected', results.corrected);
+            }
+
             console.log('✅ 處理結果已顯示在 Canvas');
         } catch (error) {
             console.error('❌ Canvas 顯示失敗:', error);
@@ -298,7 +326,14 @@ class OMRApp {
         this.currentFile = null;
 
         // 清空 Canvas
-        const canvases = ['canvas-original', 'canvas-grayscale', 'canvas-blurred', 'canvas-binary'];
+        const canvases = [
+            'canvas-original',
+            'canvas-grayscale',
+            'canvas-blurred',
+            'canvas-binary',
+            'canvas-corners',
+            'canvas-corrected'
+        ];
         canvases.forEach(id => {
             const canvas = document.getElementById(id);
             if (canvas) {
