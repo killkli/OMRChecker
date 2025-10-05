@@ -82,7 +82,7 @@ class OMRApp {
 
     // 初始化 Worker（傳送 OpenCV.js 路徑）
     this.sendWorkerMessage('init', {
-      opencvPath: '/assets/lib/opencv.js'
+      opencvPath: '/serverless_web/assets/lib/opencv.js'
     });
 
     // 初始化 ImageProcessor（用於檔案驗證等主執行緒操作）

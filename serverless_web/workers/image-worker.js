@@ -16,6 +16,7 @@ const MessageType = {
   INIT: 'init',
   LOAD_TEMPLATE: 'load_template',
   PROCESS_IMAGE: 'process_image',
+  PROCESS_OMR: 'processOMR',  // 批次處理使用
 
   // 回傳給主執行緒
   READY: 'ready',
@@ -247,6 +248,11 @@ self.onmessage = function (e) {
 
     case MessageType.PROCESS_IMAGE:
       queueImageProcessing(payload, id);
+      break;
+
+    case MessageType.PROCESS_OMR:
+      // 批次處理專用 - 直接從 e.data 取得參數
+      processOMRBatch(e.data);
       break;
 
     default:
@@ -918,6 +924,106 @@ function sendError(message, id = null) {
   sendMessage(MessageType.ERROR, {
     message
   }, id);
+}
+
+/**
+ * 批次處理 OMR（給 BatchProcessor 使用）
+ */
+async function processOMRBatch(data) {
+  const { id, imageData, template, config, evaluation, options } = data;
+  const processedMats = [];
+
+  try {
+    if (!isOpenCVReady) {
+      throw new Error('OpenCV.js 尚未就緒');
+    }
+
+    // 如果提供了模板，設定為當前模板
+    if (template) {
+      currentTemplate = template;
+    }
+
+    // 1. 建立 Mat 從 ImageData
+    const src = cv.matFromImageData({
+      data: new Uint8ClampedArray(imageData.data),
+      width: imageData.width,
+      height: imageData.height
+    });
+    processedMats.push(src);
+
+    // 2. 預處理
+    const preprocessResults = preprocessImage(src);
+    processedMats.push(...Object.values(preprocessResults));
+
+    // 3. 透視校正
+    const perspectiveResult = correctPerspective(src);
+    processedMats.push(perspectiveResult.corrected);
+    if (perspectiveResult.visualization) {
+      processedMats.push(perspectiveResult.visualization);
+    }
+
+    // 4. 答案檢測
+    let omrResult = null;
+    if (currentTemplate && perspectiveResult.corrected) {
+      omrResult = detectAndParseAnswers(
+        perspectiveResult.corrected,
+        currentTemplate
+      );
+      if (omrResult.visualization) {
+        processedMats.push(omrResult.visualization);
+      }
+    }
+
+    // 5. 使用 EvaluationParser 評分（如果有提供 evaluation）
+    let gradeResult = null;
+    if (evaluation && omrResult) {
+      // 這裡需要使用 config-parser.js 的 EvaluationParser
+      // 但 Worker 中無法直接使用，所以先返回基本結果
+      gradeResult = omrResult.scoring;
+    } else if (omrResult) {
+      gradeResult = omrResult.scoring;
+    }
+
+    // 6. 轉換標記後的圖片為 ImageData
+    let markedImageData = null;
+    if (omrResult && omrResult.visualization) {
+      markedImageData = matToImageData(omrResult.visualization);
+    }
+
+    // 7. 準備結果
+    const result = {
+      answers: omrResult ? omrResult.answers : {},
+      ...gradeResult,
+      markedImage: markedImageData
+    };
+
+    // 8. 發送完成訊息
+    self.postMessage({
+      type: 'omrComplete',
+      id: id,
+      result: result
+    });
+
+  } catch (error) {
+    console.error('[Worker] 批次處理錯誤:', error);
+    self.postMessage({
+      type: 'omrComplete',
+      id: id,
+      error: error.message
+    });
+
+  } finally {
+    // 釋放所有 Mat
+    processedMats.forEach(mat => {
+      if (mat && typeof mat.delete === 'function') {
+        try {
+          mat.delete();
+        } catch (e) {
+          console.warn('[Worker] Mat 釋放失敗:', e);
+        }
+      }
+    });
+  }
 }
 
 console.log('[Worker] Image Worker 已載入');
