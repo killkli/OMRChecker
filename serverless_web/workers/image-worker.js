@@ -525,7 +525,10 @@ function detectAndParseAnswers(correctedMat, template) {
 
             // 計算填充率
             const mask = new cv.Mat.zeros(binary.rows, binary.cols, cv.CV_8U);
-            cv.drawContours(mask, new cv.MatVector([bubble.contour]), 0, [255, 255, 255, 255], -1);
+            const maskVector = new cv.MatVector();
+            maskVector.push_back(bubble.contour);
+            cv.drawContours(mask, maskVector, 0, [255, 255, 255, 255], -1);
+            maskVector.delete();
 
             // Safe ROI operations (track all temporary Mats)
             const binaryRoi = binary.roi(bubble.rect);
