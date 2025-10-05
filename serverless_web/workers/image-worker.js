@@ -671,6 +671,71 @@ function sortCorners(approx) {
 }
 
 /**
+ * 檢測 QR Code
+ */
+function detectQRCode(img, fieldBlock) {
+  try {
+    // 取得 QR Code 區域
+    const origin = fieldBlock.origin || [0, 0];
+    const bubbleDims = fieldBlock.bubbleDimensions || [50, 50];
+    const shift = fieldBlock.shift || 0;
+
+    const x = origin[0] + shift;
+    const y = origin[1];
+    const boxW = bubbleDims[0];
+    const boxH = bubbleDims[1];
+
+    // QR Code 區域需要較大的範圍
+    const qrSize = Math.max(boxW, boxH) * 50;
+    const x1 = Math.max(0, x - Math.floor(qrSize / 2));
+    const y1 = Math.max(0, y - Math.floor(qrSize / 2));
+    const x2 = Math.min(img.cols, x + Math.floor(qrSize / 2));
+    const y2 = Math.min(img.rows, y + Math.floor(qrSize / 2));
+
+    // 提取 QR Code 區域
+    const rect = new cv.Rect(x1, y1, x2 - x1, y2 - y1);
+    const qrRegion = img.roi(rect);
+
+    // 轉換為灰階
+    let qrGray;
+    if (qrRegion.channels() === 4) {
+      qrGray = new cv.Mat();
+      cv.cvtColor(qrRegion, qrGray, cv.COLOR_RGBA2GRAY);
+    } else if (qrRegion.channels() === 3) {
+      qrGray = new cv.Mat();
+      cv.cvtColor(qrRegion, qrGray, cv.COLOR_RGB2GRAY);
+    } else {
+      qrGray = qrRegion.clone();
+    }
+
+    // 使用 OpenCV.js 的 QRCodeDetector
+    const qrDetector = new cv.QRCodeDetector();
+    const decodedInfo = qrDetector.detectAndDecode(qrGray);
+
+    // 清理
+    qrRegion.delete();
+    if (qrGray !== qrRegion) {
+      qrGray.delete();
+    }
+
+    // 檢查解碼結果
+    if (decodedInfo && decodedInfo.length > 0) {
+      console.log(`[Worker] QR Code decoded successfully: ${decodedInfo}`);
+      return {
+        data: decodedInfo.trim(),
+        success: true
+      };
+    } else {
+      console.warn('[Worker] QR Code detection returned empty string');
+      return null;
+    }
+  } catch (error) {
+    console.error('[Worker] QR Code detection error:', error);
+    return null;
+  }
+}
+
+/**
  * 檢測並解析答案（使用unified template format）
  */
 function detectAndParseAnswers(correctedMat, template) {
@@ -683,18 +748,47 @@ function detectAndParseAnswers(correctedMat, template) {
 
     console.log(`[Worker] Expected ${expectedBubbles.length} bubbles from template`);
 
-    // 1. 轉換為灰階
+    // 初始化答案物件
+    const answers = {};
+
+    // 1. 檢測 QR Code（如果模板中有定義）
+    if (template.fieldBlocks) {
+      for (const [blockName, fieldBlock] of Object.entries(template.fieldBlocks)) {
+        // 檢查是否為 QR Code 欄位
+        const isQRBlock = fieldBlock.fieldType === 'QTYPE_CUSTOM' ||
+                         blockName === 'QR_Code' ||
+                         (fieldBlock.bubbleValues && fieldBlock.bubbleValues.length === 1 && blockName.includes('QR'));
+
+        if (isQRBlock) {
+          try {
+            const qrResult = detectQRCode(correctedMat, fieldBlock);
+            if (qrResult && qrResult.data) {
+              const fieldLabel = fieldBlock.fieldLabels ? fieldBlock.fieldLabels[0] : 'qr_id';
+              answers[fieldLabel] = qrResult.data;
+              console.log(`[Worker] QR Code decoded: ${qrResult.data}`);
+            } else {
+              const fieldLabel = fieldBlock.fieldLabels ? fieldBlock.fieldLabels[0] : 'qr_id';
+              answers[fieldLabel] = fieldBlock.emptyVal || '';
+              console.warn('[Worker] QR Code detection failed');
+            }
+          } catch (error) {
+            console.error('[Worker] QR Code detection error:', error);
+          }
+        }
+      }
+    }
+
+    // 2. 轉換為灰階（用於氣泡檢測）
     const gray = new cv.Mat();
     cv.cvtColor(correctedMat, gray, cv.COLOR_RGBA2GRAY);
     tempMats.push(gray);
 
-    // 2. 二值化
+    // 3. 二值化
     const binary = new cv.Mat();
     cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
     tempMats.push(binary);
 
-    // 3. Analyze each expected bubble's fill ratio
-    const answers = {};
+    // 4. Analyze each expected bubble's fill ratio
     const fillThreshold = template.detection?.fillThreshold ||
                           template.bubble?.fillThreshold || 0.4;
 
