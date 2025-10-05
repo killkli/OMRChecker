@@ -527,9 +527,17 @@ function detectAndParseAnswers(correctedMat, template) {
             const mask = new cv.Mat.zeros(binary.rows, binary.cols, cv.CV_8U);
             cv.drawContours(mask, new cv.MatVector([bubble.contour]), 0, [255, 255, 255, 255], -1);
 
-            const filledPixels = cv.countNonZero(
-                binary.roi(bubble.rect).and(mask.roi(bubble.rect))
-            );
+            // Safe ROI operations (track all temporary Mats)
+            const binaryRoi = binary.roi(bubble.rect);
+            const maskRoi = mask.roi(bubble.rect);
+            const andResult = binaryRoi.and(maskRoi);
+            const filledPixels = cv.countNonZero(andResult);
+
+            // Release temporary Mats
+            andResult.delete();
+            maskRoi.delete();
+            binaryRoi.delete();
+
             const totalPixels = bubble.area;
             const fillRatio = filledPixels / totalPixels;
 
