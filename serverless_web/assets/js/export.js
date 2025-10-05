@@ -5,6 +5,17 @@
 
 class OMRExporter {
     /**
+     * Escape special characters for CSV format
+     * @param {string} str - String to escape
+     * @returns {string} Escaped string
+     */
+    static escapeCSV(str) {
+        if (typeof str !== 'string') return str;
+        // Escape double quotes by doubling them
+        return str.replace(/"/g, '""');
+    }
+
+    /**
      * 匯出單筆結果為 CSV 格式
      * @param {Object} result - 處理結果物件
      * @param {Object} result.omr - OMR 檢測結果
@@ -33,8 +44,8 @@ class OMRExporter {
 
         questionNumbers.forEach(questionNo => {
             const detail = scoring.details[questionNo];
-            const studentAnswer = detail.student || '(未作答)';
-            const correctAnswer = detail.correct;
+            const studentAnswer = this.escapeCSV(detail.student || '(未作答)');
+            const correctAnswer = this.escapeCSV(detail.correct);
             const isCorrect = detail.isCorrect ? '✓' : '✗';
 
             csvContent += `${questionNo},"${studentAnswer}","${correctAnswer}",${isCorrect}\n`;
@@ -149,11 +160,11 @@ class OMRExporter {
         results.forEach(result => {
             const id = result.id || '';
             const timestamp = result.timestamp ? new Date(result.timestamp).toLocaleString('zh-TW') : '';
-            const templateName = result.templateName || 'unknown';
+            const templateName = this.escapeCSV(result.templateName || 'unknown');
             const score = result.score || 0;
-            const fileName = result.metadata?.fileName || 'unknown';
+            const resultFileName = this.escapeCSV(result.metadata?.fileName || 'unknown');
 
-            csvContent += `${id},"${timestamp}","${templateName}",${score},"${fileName}"\n`;
+            csvContent += `${id},"${this.escapeCSV(timestamp)}","${templateName}",${score},"${resultFileName}"\n`;
         });
 
         // 下載檔案
@@ -205,12 +216,15 @@ class OMRExporter {
      */
     static generateSafeFileName(baseName, extension) {
         // 移除特殊字元，保留中文、英文、數字、底線、連字號
-        const safeName = baseName.replace(/[^\u4e00-\u9fa5a-zA-Z0-9_-]/g, '_');
+        const safeName = baseName.replace(/[^a-zA-Z0-9_\u4e00-\u9fa5-]/g, '_');
 
-        // 生成時間戳記
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        // 生成時間戳記（包含毫秒）
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_');
 
-        return `${safeName}_${timestamp}.${extension}`;
+        // 生成隨機後綴以確保唯一性
+        const random = Math.random().toString(36).substring(2, 6);
+
+        return `${safeName}_${timestamp}_${random}.${extension}`;
     }
 }
 

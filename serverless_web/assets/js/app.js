@@ -839,6 +839,31 @@ class OMRApp {
   }
 
   /**
+   * 顯示 Toast 通知
+   * @param {String} type - 通知類型: 'success', 'error', 'info', 'warning'
+   * @param {String} title - 標題
+   * @param {String} message - 訊息內容
+   */
+  showToast(type, title, message) {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+      <div class="toast-icon">${type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'}</div>
+      <div class="toast-content">
+        <div class="toast-title">${title}</div>
+        <div class="toast-message">${message}</div>
+      </div>
+    `;
+    document.body.appendChild(toast);
+
+    // Auto dismiss after 3 seconds
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-out';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+
+  /**
    * 顯示進度訊息
    */
   showProgress(message) {
@@ -851,7 +876,7 @@ class OMRApp {
    */
   showSuccess(message) {
     console.log('✅', message);
-    // 可以在此添加成功提示 Toast
+    this.showToast('success', '成功', message);
   }
 
   /**
@@ -859,7 +884,23 @@ class OMRApp {
    */
   showError(message) {
     console.error('❌', message);
-    alert(message);  // 簡單的錯誤提示，後續可改進為 Toast
+    this.showToast('error', '錯誤', message);
+  }
+
+  /**
+   * 顯示提示訊息
+   */
+  showInfo(message) {
+    console.info('ℹ️', message);
+    this.showToast('info', '提示', message);
+  }
+
+  /**
+   * 顯示警告訊息
+   */
+  showWarning(message) {
+    console.warn('⚠️', message);
+    this.showToast('warning', '警告', message);
   }
 
   /**
