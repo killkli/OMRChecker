@@ -358,6 +358,14 @@ footer a:hover {
     background: #f8f9fa;
 }
 
+.preview-item .hint {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+    font-style: italic;
+}
+
 /* ===== 按鈕樣式 ===== */
 .actions {
     display: flex;

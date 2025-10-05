@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>測試答案卡產生器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        .controls {
+            margin: 1rem 0;
+            display: flex;
+            gap: 1rem;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        #canvas {
+            border: 1px solid #ddd;
+            display: block;
+            margin: 1rem auto;
+            background: white;
+        }
+
+        .answer-input {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+
+        .answer-input label {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📝 測試答案卡產生器</h1>
+        <p>此工具可產生測試用答案卡影像，用於測試 OMR 系統。</p>
+
+        <div class="controls">
+            <button onclick="generateBlankSheet()">產生空白答案卡</button>
+            <button onclick="generateFilledSheet()">產生已填答答案卡</button>
+            <button onclick="downloadImage()">下載答案卡</button>
+        </div>
+
+        <h3>快速填答（點擊產生對應答案卡）：</h3>
+        <div class="answer-input">
+            <button onclick="fillPattern('AAAA')">全 A（前4題）</button>
+            <button onclick="fillPattern('BBBB')">全 B（前4題）</button>
+            <button onclick="fillPattern('CCCC')">全 C（前4題）</button>
+            <button onclick="fillPattern('DDDD')">全 D（前4題）</button>
+            <button onclick="fillPattern('ABCD')">ABCD 循環</button>
+            <button onclick="fillPattern('RANDOM')">隨機填答</button>
+        </div>
+
+        <canvas id="canvas" width="850" height="1202"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // 模板配置（與 default-template.json 相同）
+        const config = {
+            page: { width: 850, height: 1202 },
+            bubbles: { diameter: 32 },
+            layout: {
+                regions: [
+                    {
+                        id: "questions_1_10",
+                        origin: { x: 100, y: 300 },
+                        questions: { start: 1, end: 10, gap: 65 },
+                        options: { values: ["A", "B", "C", "D"], gap: 80 }
+                    },
+                    {
+                        id: "questions_11_20",
+                        origin: { x: 500, y: 300 },
+                        questions: { start: 11, end: 20, gap: 65 },
+                        options: { values: ["A", "B", "C", "D"], gap: 80 }
+                    }
+                ]
+            }
+        };
+
+        // 產生空白答案卡
+        function generateBlankSheet() {
+            // 背景
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 標題
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 36px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('OMR 測試答案卡', canvas.width / 2, 100);
+
+            // 說明
+            ctx.font = '18px Arial';
+            ctx.fillText('20 題四選一測試', canvas.width / 2, 150);
+
+            // 繪製題目和選項
+            drawAllBubbles(false);
+
+            // 繪製四個角落標記（用於透視校正）
+            drawCornerMarkers();
+        }
+
+        // 產生已填答答案卡
+        function generateFilledSheet() {
+            generateBlankSheet();
+
+            // 根據預設答案填充
+            const answers = {
+                1: 'A', 2: 'B', 3: 'C', 4: 'D', 5: 'A',
+                6: 'B', 7: 'C', 8: 'D', 9: 'A', 10: 'B',
+                11: 'C', 12: 'D', 13: 'A', 14: 'B', 15: 'C',
+                16: 'D', 17: 'A', 18: 'B', 19: 'C', 20: 'D'
+            };
+
+            fillBubbles(answers);
+        }
+
+        // 繪製所有標記圓圈
+        function drawAllBubbles(filled = false) {
+            config.layout.regions.forEach(region => {
+                const { origin, questions, options } = region;
+
+                for (let q = questions.start; q <= questions.end; q++) {
+                    const questionIndex = q - questions.start;
+                    const y = origin.y + (questionIndex * questions.gap);
+
+                    // 題號
+                    ctx.fillStyle = 'black';
+                    ctx.font = '16px Arial';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(`${q}.`, origin.x - 20, y + 5);
+
+                    // 選項標記
+                    options.values.forEach((option, optionIndex) => {
+                        const x = origin.x + (optionIndex * options.gap);
+
+                        // 選項字母
+                        ctx.textAlign = 'center';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.fillText(option, x, y - 25);
+
+                        // 畫圓圈
+                        ctx.beginPath();
+                        ctx.arc(x, y, config.bubbles.diameter / 2, 0, 2 * Math.PI);
+                        ctx.strokeStyle = 'black';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+
+                        if (filled) {
+                            ctx.fillStyle = 'black';
+                            ctx.fill();
+                        }
+                    });
+                }
+            });
+        }
+
+        // 填充特定答案
+        function fillBubbles(answers) {
+            config.layout.regions.forEach(region => {
+                const { origin, questions, options } = region;
+
+                for (let q = questions.start; q <= questions.end; q++) {
+                    const answer = answers[q];
+                    if (!answer) continue;
+
+                    const questionIndex = q - questions.start;
+                    const y = origin.y + (questionIndex * questions.gap);
+
+                    const optionIndex = options.values.indexOf(answer);
+                    if (optionIndex === -1) continue;
+
+                    const x = origin.x + (optionIndex * options.gap);
+
+                    // 填充圓圈
+                    ctx.beginPath();
+                    ctx.arc(x, y, config.bubbles.diameter / 2 - 3, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'black';
+                    ctx.fill();
+                }
+            });
+        }
+
+        // 繪製四個角落標記
+        function drawCornerMarkers() {
+            const markerSize = 40;
+            const offset = 50;
+
+            ctx.fillStyle = 'black';
+
+            // 左上
+            ctx.fillRect(offset, offset, markerSize, markerSize);
+
+            // 右上
+            ctx.fillRect(canvas.width - offset - markerSize, offset, markerSize, markerSize);
+
+            // 左下
+            ctx.fillRect(offset, canvas.height - offset - markerSize, markerSize, markerSize);
+
+            // 右下
+            ctx.fillRect(canvas.width - offset - markerSize, canvas.height - offset - markerSize, markerSize, markerSize);
+        }
+
+        // 填答模式
+        function fillPattern(pattern) {
+            generateBlankSheet();
+
+            const answers = {};
+
+            if (pattern === 'RANDOM') {
+                const options = ['A', 'B', 'C', 'D'];
+                for (let i = 1; i <= 20; i++) {
+                    answers[i] = options[Math.floor(Math.random() * 4)];
+                }
+            } else if (pattern === 'ABCD') {
+                const options = ['A', 'B', 'C', 'D'];
+                for (let i = 1; i <= 20; i++) {
+                    answers[i] = options[(i - 1) % 4];
+                }
+            } else {
+                // AAAA, BBBB, CCCC, DDDD
+                const option = pattern[0];
+                for (let i = 1; i <= 20; i++) {
+                    answers[i] = option;
+                }
+            }
+
+            fillBubbles(answers);
+        }
+
+        // 下載答案卡
+        function downloadImage() {
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'test-answer-sheet.jpg';
+                a.click();
+                URL.revokeObjectURL(url);
+            }, 'image/jpeg', 0.95);
+        }
+
+        // 初始化：產生空白答案卡
+        generateBlankSheet();
+    </script>
+</body>
+</html>

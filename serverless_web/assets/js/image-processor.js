@@ -557,4 +557,476 @@ class ImageProcessor {
             }
         }
     }
+
+    // ==================== Stage 4: 答案標記檢測與解析 ====================
+
+    /**
+     * 載入並解析模板 JSON 檔案
+     * @param {string} templateUrl - 模板檔案 URL
+     * @returns {Promise<Object>} - 模板物件
+     */
+    async loadTemplate(templateUrl) {
+        try {
+            const response = await fetch(templateUrl);
+            if (!response.ok) {
+                throw new Error(`無法載入模板: ${response.statusText}`);
+            }
+            const template = await response.json();
+            console.log('✅ 模板載入成功:', template.name);
+            return template;
+        } catch (error) {
+            console.error('❌ 模板載入失敗:', error);
+            throw new Error(`模板載入失敗: ${error.message}`);
+        }
+    }
+
+    /**
+     * 根據模板產生所有標記的預期位置
+     * @param {Object} template - 模板物件
+     * @returns {Array} - 標記位置陣列 [{questionNo, option, x, y, diameter}, ...]
+     */
+    generateBubblePositions(template) {
+        const positions = [];
+        const bubbleDiameter = template.bubbles.diameter;
+
+        template.layout.regions.forEach(region => {
+            const { origin, questions, options } = region;
+
+            for (let q = questions.start; q <= questions.end; q++) {
+                // 計算當前題號的 Y 座標（垂直方向）
+                const questionIndex = q - questions.start;
+                const questionY = origin.y + (questionIndex * questions.gap);
+
+                // 為每個選項產生標記位置
+                options.values.forEach((optionValue, optionIndex) => {
+                    const optionX = origin.x + (optionIndex * options.gap);
+
+                    positions.push({
+                        questionNo: q,
+                        option: optionValue,
+                        x: optionX,
+                        y: questionY,
+                        diameter: bubbleDiameter,
+                        regionId: region.id
+                    });
+                });
+            }
+        });
+
+        console.log(`  ✅ 產生 ${positions.length} 個標記位置`);
+        return positions;
+    }
+
+    /**
+     * 檢測圓形標記（使用 HoughCircles）
+     * @param {cv.Mat} binary - 二值化影像
+     * @param {number} minRadius - 最小半徑
+     * @param {number} maxRadius - 最大半徑
+     * @returns {Array} - 檢測到的圓形 [{x, y, radius}, ...]
+     */
+    detectCircles(binary, minRadius = 10, maxRadius = 25) {
+        const circles = new cv.Mat();
+        const inverted = new cv.Mat();
+
+        try {
+            // 反轉影像（HoughCircles 需要黑底白圓）
+            cv.bitwise_not(binary, inverted);
+
+            // Hough Circle Transform
+            cv.HoughCircles(
+                inverted,
+                circles,
+                cv.HOUGH_GRADIENT,
+                1,              // dp: 累加器解析度與影像解析度的比值
+                minRadius * 2,  // minDist: 圓心之間的最小距離
+                100,            // param1: Canny 邊緣檢測的高閾值
+                30,             // param2: 累加器閾值（越小檢測到越多圓）
+                minRadius,      // minRadius
+                maxRadius       // maxRadius
+            );
+
+            // 轉換為 JavaScript 陣列
+            const detectedCircles = [];
+            for (let i = 0; i < circles.cols; i++) {
+                detectedCircles.push({
+                    x: circles.data32F[i * 3],
+                    y: circles.data32F[i * 3 + 1],
+                    radius: circles.data32F[i * 3 + 2]
+                });
+            }
+
+            console.log(`  ✅ 檢測到 ${detectedCircles.length} 個圓形`);
+            return detectedCircles;
+
+        } finally {
+            circles.delete();
+            inverted.delete();
+        }
+    }
+
+    /**
+     * 檢測矩形標記（使用輪廓檢測）
+     * @param {cv.Mat} binary - 二值化影像
+     * @param {number} minArea - 最小面積
+     * @param {number} maxArea - 最大面積
+     * @returns {Array} - 檢測到的矩形 [{x, y, width, height}, ...]
+     */
+    detectRectangles(binary, minArea = 400, maxArea = 2000) {
+        const contours = this.findContours(binary);
+        const rectangles = [];
+
+        for (let i = 0; i < contours.size(); i++) {
+            const contour = contours.get(i);
+            const area = cv.contourArea(contour);
+
+            if (area < minArea || area > maxArea) {
+                continue;
+            }
+
+            // 計算邊界矩形
+            const rect = cv.boundingRect(contour);
+
+            // 檢查是否接近正方形（寬高比）
+            const aspectRatio = rect.width / rect.height;
+            if (aspectRatio > 0.7 && aspectRatio < 1.3) {
+                rectangles.push({
+                    x: rect.x + rect.width / 2,  // 中心點 X
+                    y: rect.y + rect.height / 2, // 中心點 Y
+                    width: rect.width,
+                    height: rect.height
+                });
+            }
+        }
+
+        contours.delete();
+        console.log(`  ✅ 檢測到 ${rectangles.length} 個矩形標記`);
+        return rectangles;
+    }
+
+    /**
+     * 匹配檢測到的標記與模板位置
+     * @param {Array} detectedMarkers - 檢測到的標記 [{x, y, ...}, ...]
+     * @param {Array} templatePositions - 模板定義的位置
+     * @param {number} tolerance - 容許誤差（像素）
+     * @returns {Array} - 匹配結果 [{questionNo, option, x, y, matched: true/false}, ...]
+     */
+    matchBubbles(detectedMarkers, templatePositions, tolerance = 15) {
+        const matched = [];
+
+        templatePositions.forEach(templatePos => {
+            // 尋找最近的檢測標記
+            let closestMarker = null;
+            let minDistance = Infinity;
+
+            detectedMarkers.forEach(marker => {
+                const distance = Math.sqrt(
+                    Math.pow(marker.x - templatePos.x, 2) +
+                    Math.pow(marker.y - templatePos.y, 2)
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestMarker = marker;
+                }
+            });
+
+            // 如果距離在容許範圍內，視為匹配
+            if (closestMarker && minDistance <= tolerance) {
+                matched.push({
+                    questionNo: templatePos.questionNo,
+                    option: templatePos.option,
+                    x: Math.round(closestMarker.x),
+                    y: Math.round(closestMarker.y),
+                    matched: true,
+                    distance: Math.round(minDistance)
+                });
+            } else {
+                // 未匹配到，使用模板位置
+                matched.push({
+                    questionNo: templatePos.questionNo,
+                    option: templatePos.option,
+                    x: templatePos.x,
+                    y: templatePos.y,
+                    matched: false,
+                    distance: null
+                });
+            }
+        });
+
+        const matchedCount = matched.filter(m => m.matched).length;
+        const matchRate = (matchedCount / matched.length * 100).toFixed(1);
+        console.log(`  ✅ 標記匹配完成: ${matchedCount}/${matched.length} (${matchRate}%)`);
+
+        return matched;
+    }
+
+    /**
+     * 計算標記的填充率
+     * @param {cv.Mat} binary - 二值化影像
+     * @param {number} x - 標記中心 X 座標
+     * @param {number} y - 標記中心 Y 座標
+     * @param {number} diameter - 標記直徑
+     * @returns {number} - 填充率 (0.0 ~ 1.0)
+     */
+    calculateFillRatio(binary, x, y, diameter) {
+        const radius = Math.floor(diameter / 2);
+        const roiSize = diameter;
+
+        // 確保 ROI 在影像範圍內
+        const x1 = Math.max(0, x - radius);
+        const y1 = Math.max(0, y - radius);
+        const x2 = Math.min(binary.cols, x + radius);
+        const y2 = Math.min(binary.rows, y + radius);
+
+        if (x2 <= x1 || y2 <= y1) {
+            return 0;
+        }
+
+        // 提取 ROI
+        const roi = binary.roi(new cv.Rect(x1, y1, x2 - x1, y2 - y1));
+
+        // 計算黑色像素數量（在二值化影像中，黑色 = 0）
+        const totalPixels = roi.rows * roi.cols;
+        let blackPixels = 0;
+
+        for (let i = 0; i < roi.rows; i++) {
+            for (let j = 0; j < roi.cols; j++) {
+                if (roi.ucharAt(i, j) === 0) {
+                    blackPixels++;
+                }
+            }
+        }
+
+        roi.delete();
+
+        const fillRatio = blackPixels / totalPixels;
+        return fillRatio;
+    }
+
+    /**
+     * 判斷標記是否已填塗
+     * @param {cv.Mat} binary - 二值化影像
+     * @param {Array} bubblePositions - 標記位置陣列
+     * @param {number} threshold - 填充閾值（預設 0.4 = 40%）
+     * @returns {Array} - 帶有填充狀態的標記 [{...bubble, fillRatio, isFilled}, ...]
+     */
+    detectFilledBubbles(binary, bubblePositions, threshold = 0.4) {
+        const results = [];
+
+        bubblePositions.forEach(bubble => {
+            const fillRatio = this.calculateFillRatio(
+                binary,
+                bubble.x,
+                bubble.y,
+                bubble.diameter
+            );
+
+            results.push({
+                ...bubble,
+                fillRatio: parseFloat(fillRatio.toFixed(3)),
+                isFilled: fillRatio >= threshold
+            });
+        });
+
+        const filledCount = results.filter(b => b.isFilled).length;
+        console.log(`  ✅ 檢測填充狀態: ${filledCount}/${results.length} 個標記已填塗`);
+
+        return results;
+    }
+
+    /**
+     * 解析答案（根據填充狀態）
+     * @param {Array} filledBubbles - 帶有填充狀態的標記
+     * @returns {Object} - { questionNo: [selectedOptions], ... }
+     */
+    parseAnswers(filledBubbles) {
+        const answers = {};
+
+        filledBubbles.forEach(bubble => {
+            if (bubble.isFilled) {
+                if (!answers[bubble.questionNo]) {
+                    answers[bubble.questionNo] = [];
+                }
+                answers[bubble.questionNo].push(bubble.option);
+            }
+        });
+
+        // 對每題的答案排序（確保一致性）
+        Object.keys(answers).forEach(questionNo => {
+            answers[questionNo].sort();
+        });
+
+        console.log(`  ✅ 解析答案完成: ${Object.keys(answers).length} 題已作答`);
+        return answers;
+    }
+
+    /**
+     * 計算分數
+     * @param {Object} studentAnswers - 學生答案 { questionNo: [options], ... }
+     * @param {Object} answerKey - 標準答案 { questionNo: correctOption, ... }
+     * @param {number} pointsPerQuestion - 每題分數
+     * @returns {Object} - 評分結果
+     */
+    calculateScore(studentAnswers, answerKey, pointsPerQuestion = 5) {
+        let correctCount = 0;
+        let incorrectCount = 0;
+        let unansweredCount = 0;
+        const details = {};
+
+        const totalQuestions = Object.keys(answerKey).length;
+
+        for (let q = 1; q <= totalQuestions; q++) {
+            const questionNo = q.toString();
+            const correctAnswer = answerKey[questionNo];
+            const studentAnswer = studentAnswers[questionNo];
+
+            if (!studentAnswer || studentAnswer.length === 0) {
+                // 未作答
+                unansweredCount++;
+                details[questionNo] = {
+                    correct: correctAnswer,
+                    student: null,
+                    isCorrect: false,
+                    status: 'unanswered'
+                };
+            } else if (studentAnswer.length === 1 && studentAnswer[0] === correctAnswer) {
+                // 答對（單選）
+                correctCount++;
+                details[questionNo] = {
+                    correct: correctAnswer,
+                    student: studentAnswer[0],
+                    isCorrect: true,
+                    status: 'correct'
+                };
+            } else {
+                // 答錯或複選
+                incorrectCount++;
+                details[questionNo] = {
+                    correct: correctAnswer,
+                    student: studentAnswer.length > 1 ? studentAnswer.join(',') : studentAnswer[0],
+                    isCorrect: false,
+                    status: studentAnswer.length > 1 ? 'multiple' : 'incorrect'
+                };
+            }
+        }
+
+        const score = correctCount * pointsPerQuestion;
+        const totalPoints = totalQuestions * pointsPerQuestion;
+        const percentage = (score / totalPoints * 100).toFixed(1);
+
+        console.log(`  ✅ 評分完成: ${correctCount}/${totalQuestions} 題正確，得分 ${score}/${totalPoints} (${percentage}%)`);
+
+        return {
+            score: score,
+            totalPoints: totalPoints,
+            percentage: parseFloat(percentage),
+            correctCount: correctCount,
+            incorrectCount: incorrectCount,
+            unansweredCount: unansweredCount,
+            totalQuestions: totalQuestions,
+            details: details
+        };
+    }
+
+    /**
+     * 完整的 OMR 答案檢測流程
+     * @param {cv.Mat} correctedImage - 校正後的答案卡影像
+     * @param {Object} template - 模板物件
+     * @returns {Object} - 檢測結果
+     */
+    async detectAndParseAnswers(correctedImage, template) {
+        let binary = null;
+        let visualization = null;
+
+        try {
+            console.log('🔄 開始答案檢測流程...');
+
+            // 1. 預處理：灰階、模糊、二值化
+            const gray = this.convertToGrayscale(correctedImage);
+            const blurred = this.gaussianBlur(gray, 5);
+            binary = this.adaptiveThreshold(blurred);
+            console.log('  ✅ 預處理完成');
+
+            // 2. 產生標記位置
+            const bubblePositions = this.generateBubblePositions(template);
+
+            // 3. 檢測標記填充狀態（直接使用模板位置，不進行圓形檢測）
+            const filledBubbles = this.detectFilledBubbles(
+                binary,
+                bubblePositions,
+                template.bubbles.fillThreshold
+            );
+
+            // 4. 解析答案
+            const studentAnswers = this.parseAnswers(filledBubbles);
+
+            // 5. 計算分數
+            const scoringResult = this.calculateScore(
+                studentAnswers,
+                template.answerKey,
+                template.scoring.pointsPerQuestion
+            );
+
+            // 6. 建立視覺化（在校正後的影像上標記答案）
+            visualization = correctedImage.clone();
+            this.visualizeAnswers(visualization, filledBubbles, scoringResult.details);
+            this.processedMats.push(visualization);
+
+            console.log('✅ 答案檢測流程完成！');
+
+            return {
+                bubbles: filledBubbles,
+                answers: studentAnswers,
+                scoring: scoringResult,
+                visualization: visualization
+            };
+
+        } catch (error) {
+            console.error('❌ 答案檢測失敗:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 在影像上視覺化答案
+     * @param {cv.Mat} img - 影像
+     * @param {Array} bubbles - 標記陣列
+     * @param {Object} details - 答題詳情
+     */
+    visualizeAnswers(img, bubbles, details) {
+        bubbles.forEach(bubble => {
+            const questionDetail = details[bubble.questionNo.toString()];
+            let color;
+
+            if (bubble.isFilled) {
+                // 判斷是否答對
+                if (questionDetail && questionDetail.isCorrect) {
+                    color = new cv.Scalar(0, 255, 0, 255);  // 綠色：答對
+                } else {
+                    color = new cv.Scalar(255, 0, 0, 255);  // 紅色：答錯
+                }
+
+                // 畫實心圓
+                cv.circle(
+                    img,
+                    new cv.Point(bubble.x, bubble.y),
+                    Math.floor(bubble.diameter / 2),
+                    color,
+                    2
+                );
+            } else {
+                // 未填塗的標記畫空心圓（灰色）
+                color = new cv.Scalar(128, 128, 128, 255);
+                cv.circle(
+                    img,
+                    new cv.Point(bubble.x, bubble.y),
+                    Math.floor(bubble.diameter / 2),
+                    color,
+                    1
+                );
+            }
+        });
+
+        console.log('  ✅ 答案視覺化完成');
+    }
 }

@@ -23,6 +23,7 @@ class OMRApp {
 
         this.imageProcessor = null;
         this.currentFile = null;
+        this.template = null;
 
         this.init();
     }
@@ -98,6 +99,9 @@ class OMRApp {
         this.imageProcessor = new ImageProcessor();
         console.log('✅ ImageProcessor 已初始化');
 
+        // 載入預設模板
+        this.loadTemplate();
+
         // 顯示上傳區域 (淡入動畫)
         setTimeout(() => {
             this.elements.statusCard.style.display = 'none';
@@ -107,6 +111,20 @@ class OMRApp {
 
         // 設定事件監聽器
         this.setupEventListeners();
+    }
+
+    /**
+     * 載入 OMR 模板
+     */
+    async loadTemplate() {
+        try {
+            console.log('🔄 載入預設 OMR 模板...');
+            this.template = await this.imageProcessor.loadTemplate('./templates/default-template.json');
+            console.log(`✅ 模板載入成功: ${this.template.name}`);
+        } catch (error) {
+            console.error('❌ 模板載入失敗:', error);
+            this.showError('模板載入失敗，將無法進行答案檢測');
+        }
     }
 
     /**
@@ -233,7 +251,7 @@ class OMRApp {
             this.showProgress('處理影像中...');
             const results = this.imageProcessor.preprocessImage(imgElement);
 
-            // 5. 透視校正（Stage 3 新功能）
+            // 5. 透視校正（Stage 3）
             try {
                 this.showProgress('執行透視校正...');
                 const mat = this.imageProcessor.imageToMat(imgElement);
@@ -246,12 +264,32 @@ class OMRApp {
                 console.log('  角點座標:', perspectiveResult.corners);
 
                 mat.delete();
+
+                // 6. 答案檢測與解析（Stage 4）
+                if (this.template && results.corrected) {
+                    try {
+                        this.showProgress('檢測答案標記...');
+                        const omrResult = await this.imageProcessor.detectAndParseAnswers(
+                            results.corrected,
+                            this.template
+                        );
+
+                        results.omr = omrResult;
+                        console.log('✅ 答案檢測完成');
+                        console.log(`  答對: ${omrResult.scoring.correctCount}/${omrResult.scoring.totalQuestions}`);
+                        console.log(`  分數: ${omrResult.scoring.score}/${omrResult.scoring.totalPoints}`);
+
+                    } catch (error) {
+                        console.warn('⚠️ 答案檢測失敗:', error.message);
+                    }
+                }
+
             } catch (error) {
                 console.warn('⚠️ 透視校正失敗:', error.message);
                 this.showError('透視校正失敗: ' + error.message + '\n將顯示基礎處理結果');
             }
 
-            // 6. 顯示結果
+            // 7. 顯示結果
             this.displayResults(results);
 
             this.showSuccess('影像處理完成！');
@@ -287,11 +325,50 @@ class OMRApp {
                 cv.imshow('canvas-corrected', results.corrected);
             }
 
+            // Stage 4: 顯示答案檢測結果
+            if (results.omr && results.omr.visualization) {
+                cv.imshow('canvas-omr-result', results.omr.visualization);
+                this.displayOMRResults(results.omr);
+            }
+
             console.log('✅ 處理結果已顯示在 Canvas');
         } catch (error) {
             console.error('❌ Canvas 顯示失敗:', error);
             this.showError('結果顯示失敗：' + error.message);
         }
+    }
+
+    /**
+     * 顯示 OMR 評分結果
+     */
+    displayOMRResults(omrResult) {
+        const { scoring, answers } = omrResult;
+
+        // 在控制台輸出詳細結果
+        console.log('');
+        console.log('========================================');
+        console.log('📊 OMR 評分結果');
+        console.log('========================================');
+        console.log(`總分: ${scoring.score}/${scoring.totalPoints} (${scoring.percentage}%)`);
+        console.log(`答對: ${scoring.correctCount} 題`);
+        console.log(`答錯: ${scoring.incorrectCount} 題`);
+        console.log(`未作答: ${scoring.unansweredCount} 題`);
+        console.log('');
+        console.log('詳細答題情況:');
+
+        Object.keys(scoring.details).forEach(questionNo => {
+            const detail = scoring.details[questionNo];
+            const statusIcon = detail.isCorrect ? '✅' :
+                              detail.status === 'unanswered' ? '⚪' : '❌';
+            const studentAnswer = detail.student || '(未作答)';
+
+            console.log(`  Q${questionNo}: ${studentAnswer} (正確答案: ${detail.correct}) ${statusIcon}`);
+        });
+
+        console.log('========================================');
+
+        // 如果有 UI 元素，也可以在這裡更新（未來可擴展）
+        // 例如：顯示分數卡片、答題詳情表格等
     }
 
     /**
