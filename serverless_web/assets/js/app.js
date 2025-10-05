@@ -12,9 +12,17 @@ class OMRApp {
             statusText: document.getElementById('status-text'),
             loadingBar: document.getElementById('loading-bar'),
             loadingProgress: document.getElementById('loading-progress'),
-            appContent: document.getElementById('app-content'),
-            versionInfo: document.getElementById('opencv-version')
+            uploadSection: document.getElementById('upload-section'),
+            previewSection: document.getElementById('preview-section'),
+            dropZone: document.getElementById('drop-zone'),
+            fileInput: document.getElementById('file-input'),
+            selectFileBtn: document.getElementById('select-file-btn'),
+            processBtn: document.getElementById('process-btn'),
+            uploadNewBtn: document.getElementById('upload-new-btn')
         };
+
+        this.imageProcessor = null;
+        this.currentFile = null;
 
         this.init();
     }
@@ -83,17 +91,22 @@ class OMRApp {
             this.elements.loadingBar.style.display = 'none';
         }, 500);
 
-        // 顯示版本資訊
-        this.displayVersionInfo();
-
-        // 顯示主要內容區域 (淡入動畫)
-        setTimeout(() => {
-            this.elements.appContent.style.display = 'block';
-            this.elements.appContent.classList.add('fade-in');
-        }, 800);
-
         // 測試 OpenCV 功能
         this.testOpenCV();
+
+        // 初始化 ImageProcessor
+        this.imageProcessor = new ImageProcessor();
+        console.log('✅ ImageProcessor 已初始化');
+
+        // 顯示上傳區域 (淡入動畫)
+        setTimeout(() => {
+            this.elements.statusCard.style.display = 'none';
+            this.elements.uploadSection.style.display = 'block';
+            this.elements.uploadSection.classList.add('fade-in');
+        }, 1000);
+
+        // 設定事件監聽器
+        this.setupEventListeners();
     }
 
     /**
@@ -117,18 +130,206 @@ class OMRApp {
     }
 
     /**
-     * 顯示 OpenCV 版本資訊
+     * 設定事件監聽器
      */
-    displayVersionInfo() {
-        const version = window.opencvLoader.getVersion();
+    setupEventListeners() {
+        // 拖放事件
+        this.elements.dropZone.addEventListener('dragover', (e) => this.handleDragOver(e));
+        this.elements.dropZone.addEventListener('dragleave', (e) => this.handleDragLeave(e));
+        this.elements.dropZone.addEventListener('drop', (e) => this.handleDrop(e));
 
-        if (version) {
-            this.elements.versionInfo.innerHTML = `
-                <strong>OpenCV 版本:</strong> ${version}<br>
-                <strong>執行環境:</strong> WebAssembly (Browser)
-            `;
-            console.log(`ℹ️ OpenCV 版本: ${version}`);
+        // 點擊上傳
+        this.elements.selectFileBtn.addEventListener('click', () => {
+            this.elements.fileInput.click();
+        });
+
+        this.elements.fileInput.addEventListener('change', (e) => {
+            this.handleFileSelect(e);
+        });
+
+        // 重新處理和上傳新圖片
+        this.elements.processBtn.addEventListener('click', () => {
+            this.reprocessImage();
+        });
+
+        this.elements.uploadNewBtn.addEventListener('click', () => {
+            this.uploadNewImage();
+        });
+
+        console.log('✅ 事件監聽器已設定');
+    }
+
+    /**
+     * 處理拖放 - dragover
+     */
+    handleDragOver(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.elements.dropZone.classList.add('drag-over');
+    }
+
+    /**
+     * 處理拖放 - dragleave
+     */
+    handleDragLeave(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.elements.dropZone.classList.remove('drag-over');
+    }
+
+    /**
+     * 處理拖放 - drop
+     */
+    async handleDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        this.elements.dropZone.classList.remove('drag-over');
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            await this.processFile(files[0]);
         }
+    }
+
+    /**
+     * 處理檔案選擇
+     */
+    async handleFileSelect(e) {
+        const file = e.target.files[0];
+        if (file) {
+            await this.processFile(file);
+        }
+    }
+
+    /**
+     * 處理上傳的檔案
+     */
+    async processFile(file) {
+        try {
+            console.log('📁 開始處理檔案:', file.name);
+
+            // 1. 基本驗證
+            if (!this.imageProcessor.validateFile(file)) {
+                this.showError('檔案格式不支援或大小超過限制（最大 10MB）');
+                return;
+            }
+
+            // 2. 驗證檔案簽名
+            this.showProgress('驗證檔案中...');
+            const isValidSignature = await this.imageProcessor.validateFileSignature(file);
+            if (!isValidSignature) {
+                this.showError('檔案簽名驗證失敗，可能不是有效的圖片檔案');
+                return;
+            }
+
+            // 3. 載入影像
+            this.showProgress('載入影像中...');
+            const imgElement = await this.imageProcessor.loadImageFromFile(file);
+            this.currentFile = file;
+            console.log('✅ 影像載入成功');
+
+            // 4. 處理影像
+            this.showProgress('處理影像中...');
+            const results = this.imageProcessor.preprocessImage(imgElement);
+
+            // 5. 顯示結果
+            this.displayResults(results);
+
+            this.showSuccess('影像處理完成！');
+
+        } catch (error) {
+            console.error('❌ 處理檔案時發生錯誤:', error);
+            this.showError('處理失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 顯示處理結果
+     */
+    displayResults(results) {
+        // 隱藏上傳區域，顯示預覽區域
+        this.elements.uploadSection.style.display = 'none';
+        this.elements.previewSection.style.display = 'block';
+        this.elements.previewSection.classList.add('fade-in');
+
+        // 顯示各個處理步驟到 Canvas
+        try {
+            cv.imshow('canvas-original', results.original);
+            cv.imshow('canvas-grayscale', results.grayscale);
+            cv.imshow('canvas-blurred', results.blurred);
+            cv.imshow('canvas-binary', results.binary);
+            console.log('✅ 處理結果已顯示在 Canvas');
+        } catch (error) {
+            console.error('❌ Canvas 顯示失敗:', error);
+            this.showError('結果顯示失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 重新處理當前影像
+     */
+    reprocessImage() {
+        if (this.currentFile) {
+            console.log('🔄 重新處理影像');
+            // 清理舊的 Mat
+            if (this.imageProcessor) {
+                this.imageProcessor.cleanup();
+            }
+            this.processFile(this.currentFile);
+        }
+    }
+
+    /**
+     * 上傳新圖片
+     */
+    uploadNewImage() {
+        console.log('📤 上傳新圖片');
+
+        // 清理記憶體
+        if (this.imageProcessor) {
+            this.imageProcessor.cleanup();
+        }
+
+        // 重置 UI
+        this.elements.previewSection.style.display = 'none';
+        this.elements.uploadSection.style.display = 'block';
+        this.elements.fileInput.value = '';
+        this.currentFile = null;
+
+        // 清空 Canvas
+        const canvases = ['canvas-original', 'canvas-grayscale', 'canvas-blurred', 'canvas-binary'];
+        canvases.forEach(id => {
+            const canvas = document.getElementById(id);
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        });
+    }
+
+    /**
+     * 顯示進度訊息
+     */
+    showProgress(message) {
+        console.log('⏳', message);
+        // 可以在此添加載入動畫或進度提示
+    }
+
+    /**
+     * 顯示成功訊息
+     */
+    showSuccess(message) {
+        console.log('✅', message);
+        // 可以在此添加成功提示 Toast
+    }
+
+    /**
+     * 顯示錯誤訊息
+     */
+    showError(message) {
+        console.error('❌', message);
+        alert(message);  // 簡單的錯誤提示，後續可改進為 Toast
     }
 
     /**

@@ -31,19 +31,69 @@
                 </div>
             </section>
 
-            <!-- 功能區域 (初始隱藏) -->
-            <div id="app-content" style="display: none;">
-                <div class="info-card">
-                    <h3>✅ OpenCV.js 已就緒</h3>
-                    <p>系統已完成初始化，準備進行影像處理。</p>
-                    <div id="opencv-version" class="version-info"></div>
+            <!-- 檔案上傳區 -->
+            <section id="upload-section" class="upload-section" style="display: none;">
+                <h2>📤 上傳答案卡影像</h2>
+
+                <div id="drop-zone" class="drop-zone">
+                    <input
+                        type="file"
+                        id="file-input"
+                        accept="image/jpeg,image/png,image/jpg"
+                        style="display: none;"
+                    >
+
+                    <div class="drop-zone-content">
+                        <div class="upload-icon">📁</div>
+                        <p class="drop-zone-text">拖放圖片到此處</p>
+                        <p class="drop-zone-subtext">或</p>
+                        <button id="select-file-btn" class="btn btn-primary">
+                            選擇檔案
+                        </button>
+                        <p class="file-info">支援 JPG、PNG 格式，最大 10MB</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 影像預覽與處理結果 -->
+            <section id="preview-section" class="preview-section" style="display: none;">
+                <h2>🖼️ 影像處理</h2>
+
+                <div class="preview-grid">
+                    <!-- 原始影像 -->
+                    <div class="preview-item">
+                        <h3>原始影像</h3>
+                        <canvas id="canvas-original"></canvas>
+                    </div>
+
+                    <!-- 灰階 -->
+                    <div class="preview-item">
+                        <h3>灰階轉換</h3>
+                        <canvas id="canvas-grayscale"></canvas>
+                    </div>
+
+                    <!-- 降噪 -->
+                    <div class="preview-item">
+                        <h3>降噪處理</h3>
+                        <canvas id="canvas-blurred"></canvas>
+                    </div>
+
+                    <!-- 二值化 -->
+                    <div class="preview-item">
+                        <h3>二值化</h3>
+                        <canvas id="canvas-binary"></canvas>
+                    </div>
                 </div>
 
-                <!-- 預留給下個階段的功能 -->
-                <div class="placeholder">
-                    <p>📋 影像上傳功能將在 Stage 2 實作</p>
+                <div class="actions">
+                    <button id="process-btn" class="btn btn-success">
+                        🔄 重新處理
+                    </button>
+                    <button id="upload-new-btn" class="btn btn-secondary">
+                        📤 上傳新圖片
+                    </button>
                 </div>
-            </div>
+            </section>
         </main>
 
         <footer>
@@ -65,6 +115,7 @@
     <!-- 載入腳本 (順序重要) -->
     <script src="./assets/js/opencv-loader.js"></script>
     <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <script src="./assets/js/image-processor.js"></script>
     <script src="./assets/js/app.js"></script>
 </body>
 </html>
