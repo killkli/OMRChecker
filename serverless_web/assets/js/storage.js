@@ -118,6 +118,15 @@ class OMRStorage {
             throw new Error('processedImageBlob 必須是 Blob 類型');
         }
 
+        // 驗證 answers 和 metadata 必須是物件類型
+        if (result.answers && typeof result.answers !== 'object') {
+            throw new Error('answers 必須是物件類型');
+        }
+
+        if (result.metadata && typeof result.metadata !== 'object') {
+            throw new Error('metadata 必須是物件類型');
+        }
+
         return new Promise((resolve, reject) => {
             try {
                 const transaction = this.db.transaction([this.STORE_RESULTS], 'readwrite');

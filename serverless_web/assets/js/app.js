@@ -37,6 +37,7 @@ class OMRApp {
         this.pendingRequests = new Map();
         this.storage = null;  // IndexedDB storage
         this.currentResults = null;  // 儲存當前處理結果
+        this.activeBlobUrls = new Set();  // 追蹤活躍的 Blob URLs
 
         this.init();
     }
@@ -419,6 +420,22 @@ class OMRApp {
         if (this.elements.closeHistoryBtn) {
             this.elements.closeHistoryBtn.addEventListener('click', () => {
                 this.closeHistory();
+            });
+        }
+
+        // 使用事件委派處理歷史記錄列表的按鈕點擊
+        if (this.elements.historyList) {
+            this.elements.historyList.addEventListener('click', (e) => {
+                // 刪除單筆記錄按鈕
+                if (e.target.classList.contains('delete-item-btn')) {
+                    const id = parseInt(e.target.dataset.id);
+                    this.deleteHistoryItem(id);
+                }
+
+                // 刪除所有記錄按鈕
+                if (e.target.id === 'delete-all-btn') {
+                    this.deleteAllHistory();
+                }
             });
         }
 
@@ -971,11 +988,17 @@ class OMRApp {
      * 渲染歷史記錄列表
      */
     renderHistoryList(results) {
+        // 清理舊的 Blob URLs
+        this.revokeAllBlobUrls();
+
         let html = '<div class="history-grid">';
 
         results.forEach((result) => {
             const date = new Date(result.timestamp).toLocaleString('zh-TW');
             const imageUrl = URL.createObjectURL(result.originalImageBlob);
+
+            // 追蹤新建立的 Blob URL
+            this.activeBlobUrls.add(imageUrl);
 
             html += `
                 <div class="history-item" data-id="${result.id}">
@@ -985,7 +1008,7 @@ class OMRApp {
                         <p class="history-score">分數: ${result.score}</p>
                         <p class="history-meta">${result.metadata.fileName || '未知檔案'}</p>
                         <div class="history-actions">
-                            <button class="btn-small btn-danger" onclick="app.deleteHistoryItem(${result.id})">
+                            <button class="btn-small btn-danger delete-item-btn" data-id="${result.id}">
                                 🗑️ 刪除
                             </button>
                         </div>
@@ -995,9 +1018,17 @@ class OMRApp {
         });
 
         html += '</div>';
-        html += `<button class="btn btn-danger" onclick="app.deleteAllHistory()" style="margin-top: 1rem;">🗑️ 清空所有記錄</button>`;
+        html += `<button class="btn btn-danger" id="delete-all-btn" style="margin-top: 1rem;">🗑️ 清空所有記錄</button>`;
 
         this.elements.historyList.innerHTML = html;
+    }
+
+    /**
+     * 釋放所有 Blob URLs
+     */
+    revokeAllBlobUrls() {
+        this.activeBlobUrls.forEach(url => URL.revokeObjectURL(url));
+        this.activeBlobUrls.clear();
     }
 
     /**
@@ -1008,10 +1039,7 @@ class OMRApp {
             this.elements.historySection.style.display = 'none';
 
             // 釋放所有 Blob URLs
-            const thumbnails = this.elements.historyList.querySelectorAll('.history-thumbnail');
-            thumbnails.forEach(img => {
-                URL.revokeObjectURL(img.src);
-            });
+            this.revokeAllBlobUrls();
         }
     }
 
@@ -1061,13 +1089,11 @@ class OMRApp {
 }
 
 // 等待 DOM 載入完成後初始化應用程式
-let app;  // 全域變數供 HTML 中的 onclick 使用
-
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        app = new OMRApp();
+        new OMRApp();
     });
 } else {
     // DOM 已經載入完成
-    app = new OMRApp();
+    new OMRApp();
 }
