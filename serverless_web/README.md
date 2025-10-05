@@ -62,25 +62,63 @@ git push -u origin main
 
 ---
 
+## 💡 使用說明
+
+### 基本流程
+
+1. **上傳答案卡影像** - 拖放或選擇 JPG/PNG 檔案 (最大 10MB)
+2. **自動處理** - 系統自動執行影像處理、透視校正、答案辨識
+3. **查看結果** - 檢視處理過程和評分結果
+4. **儲存/匯出** - 將結果儲存到本地或匯出為 CSV/JSON
+
+### 匯出功能
+
+**單筆結果匯出**:
+- 📊 **CSV**: 適合在 Excel/Google Sheets 中分析
+- 📄 **JSON**: 適合與其他系統整合
+
+**批次匯出**:
+1. 處理多張答案卡並儲存結果
+2. 開啟「查看歷史記錄」
+3. 點擊「匯出 CSV」或「匯出 JSON」
+4. 一次下載所有記錄
+
+### 詳細文件
+
+- 📖 [完整使用者指南](docs/USER_GUIDE.md)
+- 📋 [範例檔案說明](samples/README.md)
+- 🧪 [測試說明](tests/test-export.html)
+
+---
+
 ## 📁 專案結構
 
 ```
 serverless_web/
-├── index.html                 # 主頁面
+├── index.html                     # 主頁面
 ├── assets/
 │   ├── css/
-│   │   └── style.css         # 樣式表 (響應式設計)
+│   │   └── style.css             # 樣式表 (響應式設計 + 動畫)
 │   ├── js/
-│   │   ├── app.js            # 主應用程式
-│   │   └── opencv-loader.js  # OpenCV.js 載入器
+│   │   ├── app.js                # 主應用程式
+│   │   ├── opencv-loader.js      # OpenCV.js 載入器
+│   │   ├── image-processor.js    # 影像處理模組
+│   │   ├── storage.js            # IndexedDB 儲存模組
+│   │   └── export.js             # CSV/JSON 匯出模組 ✨ NEW!
 │   └── lib/
-│       └── [預留 opencv.js 位置]
+│       └── opencv.js             # OpenCV.js (CDN 載入)
 ├── workers/
-│   └── [預留 Web Worker 位置]
+│   └── image-worker.js           # Web Worker (影像處理)
 ├── templates/
-│   └── [預留 OMR 模板位置]
-├── README.md                  # 本文件
-└── TECHNICAL_DOCUMENTATION.md # 技術文件
+│   └── default-template.json     # 預設 OMR 模板
+├── docs/
+│   └── USER_GUIDE.md             # 完整使用者指南 ✨ NEW!
+├── samples/
+│   └── README.md                 # 範例檔案說明 ✨ NEW!
+├── tests/
+│   └── test-export.html          # 匯出功能測試 ✨ NEW!
+├── README.md                      # 本文件
+└── IMPLEMENTATION_PLAN.md         # 實施計劃
 ```
 
 ---
@@ -97,23 +135,41 @@ serverless_web/
 
 ---
 
-## 📊 目前進度 (Stage 1)
+## 📊 專案進度
 
-### ✅ 已完成功能
+### ✅ 已完成功能 (All Stages Complete!)
 
+**Stage 1-2: 基礎架構與影像處理**
 - [x] 專案目錄結構建立
 - [x] HTML 主頁面實作
 - [x] OpenCV.js 載入器實作
-- [x] 載入進度視覺化
-- [x] 基本 UI 設計 (響應式)
-- [x] 錯誤處理機制
+- [x] 影像上傳功能 (拖放、選擇檔案)
+- [x] 影像預處理 (灰階、降噪、二值化)
 
-### 🔄 開發中
+**Stage 3-4: 透視校正與答案辨識**
+- [x] 角點檢測與視覺化
+- [x] 透視校正
+- [x] 答案標記辨識
+- [x] 自動評分
 
-- [ ] 影像上傳功能 (Stage 2)
-- [ ] 影像預處理 (Stage 2)
-- [ ] 輪廓檢測與透視校正 (Stage 3)
-- [ ] 答案標記辨識 (Stage 4)
+**Stage 5: Web Worker 優化**
+- [x] Web Worker 架構
+- [x] 主執行緒與 Worker 通訊
+- [x] 降級方案 (不支援 Worker 的瀏覽器)
+
+**Stage 6: 資料儲存**
+- [x] IndexedDB 整合
+- [x] 結果儲存與查詢
+- [x] 歷史記錄管理
+
+**Stage 7: 結果匯出與 UI 優化** ✨ NEW!
+- [x] CSV 匯出功能
+- [x] JSON 匯出功能
+- [x] 批次匯出
+- [x] UI/UX 改進 (動畫、Toast 通知)
+- [x] 響應式設計優化
+- [x] 完整使用者指南
+- [x] 範例檔案說明
 
 ---
 

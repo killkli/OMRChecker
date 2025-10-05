@@ -22,10 +22,14 @@ class OMRApp {
       processingProgress: document.getElementById('processing-progress'),
       processingMessage: document.getElementById('processing-message'),
       saveResultBtn: document.getElementById('save-result-btn'),
+      exportCSVBtn: document.getElementById('export-csv-btn'),
+      exportJSONBtn: document.getElementById('export-json-btn'),
       viewHistoryBtn: document.getElementById('view-history-btn'),
       historySection: document.getElementById('history-section'),
       historyList: document.getElementById('history-list'),
-      closeHistoryBtn: document.getElementById('close-history-btn')
+      closeHistoryBtn: document.getElementById('close-history-btn'),
+      exportHistoryCSVBtn: document.getElementById('export-history-csv-btn'),
+      exportHistoryJSONBtn: document.getElementById('export-history-json-btn')
     };
 
     this.imageProcessor = null;
@@ -423,6 +427,31 @@ class OMRApp {
     if (this.elements.closeHistoryBtn) {
       this.elements.closeHistoryBtn.addEventListener('click', () => {
         this.closeHistory();
+      });
+    }
+
+    // Export 相關事件
+    if (this.elements.exportCSVBtn) {
+      this.elements.exportCSVBtn.addEventListener('click', () => {
+        this.exportCurrentResultCSV();
+      });
+    }
+
+    if (this.elements.exportJSONBtn) {
+      this.elements.exportJSONBtn.addEventListener('click', () => {
+        this.exportCurrentResultJSON();
+      });
+    }
+
+    if (this.elements.exportHistoryCSVBtn) {
+      this.elements.exportHistoryCSVBtn.addEventListener('click', () => {
+        this.exportHistoryCSV();
+      });
+    }
+
+    if (this.elements.exportHistoryJSONBtn) {
+      this.elements.exportHistoryJSONBtn.addEventListener('click', () => {
+        this.exportHistoryJSON();
       });
     }
 
@@ -1087,6 +1116,110 @@ class OMRApp {
     } catch (error) {
       console.error('❌ 刪除失敗:', error);
       this.showError('刪除失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 匯出當前結果為 CSV
+   */
+  exportCurrentResultCSV() {
+    if (!this.currentResults || !this.currentResults.omr) {
+      this.showError('沒有可匯出的結果');
+      return;
+    }
+
+    try {
+      const fileName = OMRExporter.generateSafeFileName(
+        this.currentFile ? this.currentFile.name.replace(/\.[^/.]+$/, '') : 'omr-result',
+        'csv'
+      );
+
+      OMRExporter.exportToCSV(this.currentResults, this.template, fileName);
+      this.showSuccess('CSV 檔案已下載！');
+    } catch (error) {
+      console.error('❌ 匯出 CSV 失敗:', error);
+      this.showError('匯出失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 匯出當前結果為 JSON
+   */
+  exportCurrentResultJSON() {
+    if (!this.currentResults || !this.currentResults.omr) {
+      this.showError('沒有可匯出的結果');
+      return;
+    }
+
+    try {
+      const metadata = {
+        fileName: this.currentFile ? this.currentFile.name : 'unknown',
+        fileSize: this.currentFile ? this.currentFile.size : 0,
+        processedDate: new Date().toISOString()
+      };
+
+      const fileName = OMRExporter.generateSafeFileName(
+        this.currentFile ? this.currentFile.name.replace(/\.[^/.]+$/, '') : 'omr-result',
+        'json'
+      );
+
+      OMRExporter.exportToJSON(this.currentResults, this.template, metadata, fileName);
+      this.showSuccess('JSON 檔案已下載！');
+    } catch (error) {
+      console.error('❌ 匯出 JSON 失敗:', error);
+      this.showError('匯出失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 匯出歷史記錄為 CSV（批次）
+   */
+  async exportHistoryCSV() {
+    if (!this.storage) {
+      this.showError('儲存功能未啟用');
+      return;
+    }
+
+    try {
+      const results = await this.storage.getAllResults();
+
+      if (results.length === 0) {
+        this.showError('沒有歷史記錄可匯出');
+        return;
+      }
+
+      const fileName = OMRExporter.generateSafeFileName('omr-history', 'csv');
+      OMRExporter.exportBatchToCSV(results, fileName);
+      this.showSuccess(`已匯出 ${results.length} 筆記錄！`);
+    } catch (error) {
+      console.error('❌ 匯出歷史記錄失敗:', error);
+      this.showError('匯出失敗：' + error.message);
+    }
+  }
+
+  /**
+   * 匯出歷史記錄為 JSON（批次）
+   */
+  async exportHistoryJSON() {
+    if (!this.storage) {
+      this.showError('儲存功能未啟用');
+      return;
+    }
+
+    try {
+      const results = await this.storage.getAllResults();
+
+      if (results.length === 0) {
+        this.showError('沒有歷史記錄可匯出');
+        return;
+      }
+
+      const fileName = OMRExporter.generateSafeFileName('omr-history', 'json');
+      OMRExporter.exportBatchToJSON(results, fileName);
+      this.showSuccess(`已匯出 ${results.length} 筆記錄！`);
+    } catch (error) {
+      console.error('❌ 匯出歷史記錄失敗:', error);
+      this.showError('匯出失敗：' + error.message);
     }
   }
 }

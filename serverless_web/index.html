@@ -106,7 +106,13 @@
                     <button id="save-result-btn" class="btn btn-primary">
                         💾 儲存結果
                     </button>
-                    <button id="process-btn" class="btn btn-success">
+                    <button id="export-csv-btn" class="btn btn-success">
+                        📊 匯出 CSV
+                    </button>
+                    <button id="export-json-btn" class="btn btn-success">
+                        📄 匯出 JSON
+                    </button>
+                    <button id="process-btn" class="btn btn-secondary">
                         🔄 重新處理
                     </button>
                     <button id="upload-new-btn" class="btn btn-secondary">
@@ -119,7 +125,11 @@
             <section id="history-section" class="history-section" style="display: none;">
                 <div class="history-header">
                     <h2>📋 處理歷史</h2>
-                    <button id="close-history-btn" class="btn btn-secondary">✕ 關閉</button>
+                    <div class="history-actions">
+                        <button id="export-history-csv-btn" class="btn btn-small btn-success">📊 匯出 CSV</button>
+                        <button id="export-history-json-btn" class="btn btn-small btn-success">📄 匯出 JSON</button>
+                        <button id="close-history-btn" class="btn btn-small btn-secondary">✕ 關閉</button>
+                    </div>
                 </div>
                 <div id="history-list" class="history-list"></div>
             </section>
@@ -149,6 +159,7 @@
     <script src="./assets/js/opencv-loader.js"></script>
     <script async src="./assets/lib/opencv.js"></script>
     <script src="./assets/js/storage.js"></script>
+    <script src="./assets/js/export.js"></script>
     <script src="./assets/js/image-processor.js"></script>
     <script src="./assets/js/app.js"></script>
 </body>
