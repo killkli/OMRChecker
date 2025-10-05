@@ -20,7 +20,12 @@ class OMRApp {
             processBtn: document.getElementById('process-btn'),
             uploadNewBtn: document.getElementById('upload-new-btn'),
             processingProgress: document.getElementById('processing-progress'),
-            processingMessage: document.getElementById('processing-message')
+            processingMessage: document.getElementById('processing-message'),
+            saveResultBtn: document.getElementById('save-result-btn'),
+            viewHistoryBtn: document.getElementById('view-history-btn'),
+            historySection: document.getElementById('history-section'),
+            historyList: document.getElementById('history-list'),
+            closeHistoryBtn: document.getElementById('close-history-btn')
         };
 
         this.imageProcessor = null;
@@ -30,6 +35,8 @@ class OMRApp {
         this.useWorker = true;  // 預設使用 Worker
         this.messageId = 0;
         this.pendingRequests = new Map();
+        this.storage = null;  // IndexedDB storage
+        this.currentResults = null;  // 儲存當前處理結果
 
         this.init();
     }
@@ -75,6 +82,9 @@ class OMRApp {
 
         // 初始化 ImageProcessor（用於檔案驗證等主執行緒操作）
         this.imageProcessor = new ImageProcessor();
+
+        // 初始化 Storage
+        this.initStorage();
 
         // 設定事件監聽器
         this.setupEventListeners();
@@ -349,6 +359,24 @@ class OMRApp {
     }
 
     /**
+     * 初始化 Storage
+     */
+    async initStorage() {
+        try {
+            this.storage = new OMRStorage();
+            await this.storage.init();
+            console.log('✅ Storage 已初始化');
+
+            // 顯示儲存空間資訊
+            const estimate = await this.storage.getStorageEstimate();
+            console.log(`💾 儲存空間: ${estimate.usageInMB}MB / ${estimate.quotaInMB}MB (${estimate.percentage}%)`);
+        } catch (error) {
+            console.warn('⚠️ Storage 初始化失敗:', error.message);
+            console.warn('將無法使用儲存功能');
+        }
+    }
+
+    /**
      * 設定事件監聽器
      */
     setupEventListeners() {
@@ -374,6 +402,25 @@ class OMRApp {
         this.elements.uploadNewBtn.addEventListener('click', () => {
             this.uploadNewImage();
         });
+
+        // Storage 相關事件
+        if (this.elements.saveResultBtn) {
+            this.elements.saveResultBtn.addEventListener('click', () => {
+                this.saveCurrentResult();
+            });
+        }
+
+        if (this.elements.viewHistoryBtn) {
+            this.elements.viewHistoryBtn.addEventListener('click', () => {
+                this.showHistory();
+            });
+        }
+
+        if (this.elements.closeHistoryBtn) {
+            this.elements.closeHistoryBtn.addEventListener('click', () => {
+                this.closeHistory();
+            });
+        }
 
         console.log('✅ 事件監聽器已設定');
     }
@@ -557,6 +604,9 @@ class OMRApp {
      * 顯示 Worker 回傳的結果
      */
     displayWorkerResults(results) {
+        // 儲存當前結果
+        this.currentResults = results;
+
         // 隱藏上傳區域，顯示預覽區域
         this.elements.uploadSection.style.display = 'none';
         this.elements.previewSection.style.display = 'block';
@@ -618,6 +668,9 @@ class OMRApp {
      * 顯示處理結果（主執行緒版本）
      */
     displayResults(results) {
+        // 儲存當前結果
+        this.currentResults = results;
+
         // 隱藏上傳區域，顯示預覽區域
         this.elements.uploadSection.style.display = 'none';
         this.elements.previewSection.style.display = 'block';
@@ -805,14 +858,216 @@ class OMRApp {
 
         this.elements.statusCard.appendChild(retryButton);
     }
+
+    /**
+     * 儲存當前處理結果
+     */
+    async saveCurrentResult() {
+        if (!this.storage) {
+            this.showError('儲存功能未啟用');
+            return;
+        }
+
+        if (!this.currentResults) {
+            this.showError('沒有可儲存的結果');
+            return;
+        }
+
+        try {
+            console.log('💾 開始儲存結果...');
+
+            // 將 Canvas 轉換為 Blob
+            const originalBlob = await this.canvasToBlob('canvas-original');
+            const processedBlob = this.currentResults.omr ?
+                await this.canvasToBlob('canvas-omr-result') :
+                await this.canvasToBlob('canvas-corrected');
+
+            // 準備儲存資料
+            const resultData = {
+                originalImageBlob: originalBlob,
+                processedImageBlob: processedBlob,
+                answers: this.currentResults.omr ? this.currentResults.omr.answers : {},
+                score: this.currentResults.omr ? this.currentResults.omr.scoring.score : 0,
+                templateName: this.template ? this.template.name : 'default',
+                metadata: {
+                    fileName: this.currentFile ? this.currentFile.name : 'unknown',
+                    fileSize: this.currentFile ? this.currentFile.size : 0,
+                    totalQuestions: this.currentResults.omr ? this.currentResults.omr.scoring.totalQuestions : 0,
+                    correctCount: this.currentResults.omr ? this.currentResults.omr.scoring.correctCount : 0
+                }
+            };
+
+            const id = await this.storage.saveResult(resultData);
+            console.log(`✅ 結果已儲存，ID: ${id}`);
+
+            this.showSuccess('處理結果已儲存！');
+
+            // 更新儲存空間資訊
+            const estimate = await this.storage.getStorageEstimate();
+            console.log(`💾 儲存空間: ${estimate.usageInMB}MB / ${estimate.quotaInMB}MB (${estimate.percentage}%)`);
+
+        } catch (error) {
+            console.error('❌ 儲存失敗:', error);
+            this.showError('儲存失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 將 Canvas 轉換為 Blob
+     */
+    async canvasToBlob(canvasId) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) {
+            throw new Error(`Canvas ${canvasId} 不存在`);
+        }
+
+        return new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => {
+                if (blob) {
+                    resolve(blob);
+                } else {
+                    reject(new Error('Canvas 轉換 Blob 失敗'));
+                }
+            }, 'image/png');
+        });
+    }
+
+    /**
+     * 顯示歷史記錄
+     */
+    async showHistory() {
+        if (!this.storage) {
+            this.showError('儲存功能未啟用');
+            return;
+        }
+
+        if (!this.elements.historySection || !this.elements.historyList) {
+            console.warn('⚠️ 歷史記錄 UI 未找到');
+            return;
+        }
+
+        try {
+            console.log('📋 載入歷史記錄...');
+
+            const results = await this.storage.getAllResults();
+
+            if (results.length === 0) {
+                this.elements.historyList.innerHTML = '<p class="no-history">尚無儲存的記錄</p>';
+            } else {
+                this.renderHistoryList(results);
+            }
+
+            // 顯示歷史記錄區域
+            this.elements.historySection.style.display = 'block';
+            this.elements.historySection.classList.add('fade-in');
+
+        } catch (error) {
+            console.error('❌ 載入歷史記錄失敗:', error);
+            this.showError('載入歷史記錄失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 渲染歷史記錄列表
+     */
+    renderHistoryList(results) {
+        let html = '<div class="history-grid">';
+
+        results.forEach((result) => {
+            const date = new Date(result.timestamp).toLocaleString('zh-TW');
+            const imageUrl = URL.createObjectURL(result.originalImageBlob);
+
+            html += `
+                <div class="history-item" data-id="${result.id}">
+                    <img src="${imageUrl}" class="history-thumbnail" alt="Result ${result.id}">
+                    <div class="history-info">
+                        <p class="history-date">${date}</p>
+                        <p class="history-score">分數: ${result.score}</p>
+                        <p class="history-meta">${result.metadata.fileName || '未知檔案'}</p>
+                        <div class="history-actions">
+                            <button class="btn-small btn-danger" onclick="app.deleteHistoryItem(${result.id})">
+                                🗑️ 刪除
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        html += `<button class="btn btn-danger" onclick="app.deleteAllHistory()" style="margin-top: 1rem;">🗑️ 清空所有記錄</button>`;
+
+        this.elements.historyList.innerHTML = html;
+    }
+
+    /**
+     * 關閉歷史記錄
+     */
+    closeHistory() {
+        if (this.elements.historySection) {
+            this.elements.historySection.style.display = 'none';
+
+            // 釋放所有 Blob URLs
+            const thumbnails = this.elements.historyList.querySelectorAll('.history-thumbnail');
+            thumbnails.forEach(img => {
+                URL.revokeObjectURL(img.src);
+            });
+        }
+    }
+
+    /**
+     * 刪除單筆歷史記錄
+     */
+    async deleteHistoryItem(id) {
+        if (!confirm('確定要刪除這筆記錄嗎？')) {
+            return;
+        }
+
+        try {
+            await this.storage.deleteResult(id);
+            console.log(`✅ 記錄已刪除，ID: ${id}`);
+
+            // 重新載入歷史記錄
+            this.showHistory();
+
+        } catch (error) {
+            console.error('❌ 刪除失敗:', error);
+            this.showError('刪除失敗：' + error.message);
+        }
+    }
+
+    /**
+     * 刪除所有歷史記錄
+     */
+    async deleteAllHistory() {
+        if (!confirm('確定要刪除所有記錄嗎？此操作無法復原。')) {
+            return;
+        }
+
+        try {
+            await this.storage.deleteAllResults();
+            console.log('✅ 所有記錄已刪除');
+
+            this.showSuccess('所有記錄已清空');
+
+            // 重新載入歷史記錄
+            this.showHistory();
+
+        } catch (error) {
+            console.error('❌ 刪除失敗:', error);
+            this.showError('刪除失敗：' + error.message);
+        }
+    }
 }
 
 // 等待 DOM 載入完成後初始化應用程式
+let app;  // 全域變數供 HTML 中的 onclick 使用
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        new OMRApp();
+        app = new OMRApp();
     });
 } else {
     // DOM 已經載入完成
-    new OMRApp();
+    app = new OMRApp();
 }
