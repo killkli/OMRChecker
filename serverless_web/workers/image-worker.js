@@ -816,7 +816,19 @@ function detectAndParseAnswers(correctedMat, template) {
     cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
     tempMats.push(binary);
 
-    // 4. Analyze each expected bubble's fill ratio
+    // 4. Initialize all question fields with empty arrays
+    // This ensures every question appears in results, even if no bubbles are marked
+    const allFieldLabels = new Set();
+    for (const expectedBubble of expectedBubbles) {
+      allFieldLabels.add(expectedBubble.fieldLabel);
+    }
+    allFieldLabels.forEach(label => {
+      if (!answers[label]) {
+        answers[label] = [];
+      }
+    });
+
+    // 5. Analyze each expected bubble's fill ratio
     const fillThreshold = template.detection?.fillThreshold ||
                           template.bubble?.fillThreshold || 0.4;
 
@@ -859,9 +871,6 @@ function detectAndParseAnswers(correctedMat, template) {
       const isFilled = fillRatio > fillThreshold;
 
       if (isFilled) {
-        if (!answers[fieldLabel]) {
-          answers[fieldLabel] = [];
-        }
         answers[fieldLabel].push(fieldValue);
       }
 

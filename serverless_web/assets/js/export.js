@@ -140,7 +140,7 @@ class OMRExporter {
     }
 
     /**
-     * 批次匯出多筆結果為 CSV 格式（摘要）
+     * 批次匯出多筆結果為 CSV 格式（與GRADIO版本相容）
      * @param {Array} results - 結果陣列
      * @param {String} fileName - 檔案名稱（可選）
      * @returns {void}
@@ -153,18 +153,46 @@ class OMRExporter {
         // 建立 CSV 內容
         let csvContent = '\uFEFF'; // UTF-8 BOM for Excel compatibility
 
-        // Header
-        csvContent += 'ID,時間,模板,分數,檔案名稱\n';
+        // 收集所有question fields (sorted)
+        const allFields = new Set();
+        results.forEach(result => {
+            if (result.answers) {
+                Object.keys(result.answers).forEach(key => allFields.add(key));
+            }
+        });
+
+        // Sort fields: qr_id first, then q1, q2, ..., q80
+        const sortedFields = Array.from(allFields).sort((a, b) => {
+            if (a === 'qr_id') return -1;
+            if (b === 'qr_id') return 1;
+            if (a.startsWith('q') && b.startsWith('q')) {
+                return parseInt(a.substring(1)) - parseInt(b.substring(1));
+            }
+            return a.localeCompare(b);
+        });
+
+        // Header: file_id, input_path, output_path, score, q1, q2, ..., qr_id
+        csvContent += 'file_id,input_path,output_path,score,' + sortedFields.join(',') + '\n';
 
         // 資料行
         results.forEach(result => {
-            const id = result.id || '';
-            const timestamp = result.timestamp ? new Date(result.timestamp).toLocaleString('zh-TW') : '';
-            const templateName = this.escapeCSV(result.templateName || 'unknown');
+            const fileId = this.escapeCSV(result.metadata?.fileName || result.id || 'unknown');
+            const inputPath = this.escapeCSV(result.metadata?.fileName || '');
+            const outputPath = ''; // 不適用於瀏覽器版本
             const score = result.score || 0;
-            const resultFileName = this.escapeCSV(result.metadata?.fileName || 'unknown');
 
-            csvContent += `${id},"${this.escapeCSV(timestamp)}","${templateName}",${score},"${resultFileName}"\n`;
+            // Build row
+            let row = `"${fileId}","${inputPath}","${outputPath}",${score}`;
+
+            // Add answers for each field
+            sortedFields.forEach(field => {
+                const answer = result.answers?.[field] || [];
+                // Join multiple answers with comma (e.g., ["A","B"] => "A,B")
+                const answerStr = Array.isArray(answer) ? answer.join(',') : answer;
+                row += `,"${this.escapeCSV(answerStr)}"`;
+            });
+
+            csvContent += row + '\n';
         });
 
         // 下載檔案

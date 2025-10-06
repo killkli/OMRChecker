@@ -331,7 +331,7 @@ class BatchProcessor {
   }
 
   /**
-   * 匯出 CSV
+   * 匯出 CSV（與GRADIO版本相容格式）
    */
   exportCSV() {
     if (this.results.length === 0) {
@@ -343,27 +343,58 @@ class BatchProcessor {
       throw new Error('沒有成功處理的結果');
     }
 
-    // 建立 CSV 內容
-    const headers = ['檔案名稱', '總題數', '正確題數', '錯誤題數', '未作答', '分數', '狀態'];
-    const rows = successResults.map(r => {
-      const result = r.result;
-      return [
-        r.file,
-        result.totalQuestions || 0,
-        result.correctCount || 0,
-        result.incorrectCount || 0,
-        result.unansweredCount || 0,
-        result.score || 0,
-        '成功'
-      ];
+    // 收集所有question fields (sorted)
+    const allFields = new Set();
+    successResults.forEach(r => {
+      if (r.result && r.result.answers) {
+        Object.keys(r.result.answers).forEach(key => allFields.add(key));
+      }
     });
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
+    // Sort fields: qr_id first, then q1, q2, ..., q80
+    const sortedFields = Array.from(allFields).sort((a, b) => {
+      if (a === 'qr_id') return -1;
+      if (b === 'qr_id') return 1;
+      if (a.startsWith('q') && b.startsWith('q')) {
+        return parseInt(a.substring(1)) - parseInt(b.substring(1));
+      }
+      return a.localeCompare(b);
+    });
 
-    return csvContent;
+    // Header: file_id, input_path, output_path, score, qr_id, q1, q2, ...
+    const headers = ['file_id', 'input_path', 'output_path', 'score', ...sortedFields];
+    const csvContent = ['\uFEFF' + headers.join(',')]; // UTF-8 BOM
+
+    // Data rows
+    successResults.forEach(r => {
+      const fileName = this.escapeCSV(r.file);
+      const inputPath = this.escapeCSV(r.file);
+      const outputPath = ''; // 不適用於瀏覽器版本
+      const score = r.result.score || 0;
+
+      let row = `"${fileName}","${inputPath}","${outputPath}",${score}`;
+
+      // Add answers for each field
+      sortedFields.forEach(field => {
+        const answer = r.result.answers?.[field] || [];
+        // Join multiple answers with comma (e.g., ["A","B"] => "A,B")
+        const answerStr = Array.isArray(answer) ? answer.join(',') : answer;
+        row += `,"${this.escapeCSV(answerStr)}"`;
+      });
+
+      csvContent.push(row);
+    });
+
+    return csvContent.join('\n');
+  }
+
+  /**
+   * Escape special characters for CSV format
+   */
+  escapeCSV(str) {
+    if (typeof str !== 'string') return str;
+    // Escape double quotes by doubling them
+    return str.replace(/"/g, '""');
   }
 
   /**
