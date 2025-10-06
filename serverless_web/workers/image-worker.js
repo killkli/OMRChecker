@@ -103,6 +103,16 @@ function parseFieldBlocks(template) {
   const globalBubbleDimensions = template.bubbleDimensions || [32, 32];
 
   for (const [blockName, fieldBlock] of Object.entries(template.fieldBlocks)) {
+    // Skip QR Code blocks - they are handled separately in detectAndParseAnswers
+    const isQRBlock = fieldBlock.fieldType === 'QTYPE_CUSTOM' ||
+                     blockName === 'QR_Code' ||
+                     blockName.includes('QR');
+
+    if (isQRBlock) {
+      console.log(`[Worker] Skipping QR block: ${blockName}`);
+      continue;
+    }
+
     // Pre-fill with field type defaults
     let blockConfig = { ...fieldBlock };
     if (fieldBlock.fieldType && FIELD_TYPES[fieldBlock.fieldType]) {
@@ -685,12 +695,16 @@ function detectQRCode(img, fieldBlock) {
     const boxW = bubbleDims[0];
     const boxH = bubbleDims[1];
 
+    console.log(`[Worker] QR Code detection: img size=${img.cols}x${img.rows}, origin=[${origin[0]}, ${origin[1]}], shift=${shift}, bubbleDims=[${boxW}, ${boxH}]`);
+
     // QR Code 區域需要較大的範圍
     const qrSize = Math.max(boxW, boxH) * 50;
     const x1 = Math.max(0, x - Math.floor(qrSize / 2));
     const y1 = Math.max(0, y - Math.floor(qrSize / 2));
     const x2 = Math.min(img.cols, x + Math.floor(qrSize / 2));
     const y2 = Math.min(img.rows, y + Math.floor(qrSize / 2));
+
+    console.log(`[Worker] QR region: qrSize=${qrSize}, rect=[${x1}, ${y1}, ${x2-x1}, ${y2-y1}]`);
 
     // 提取 QR Code 區域
     const rect = new cv.Rect(x1, y1, x2 - x1, y2 - y1);

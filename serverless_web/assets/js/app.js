@@ -165,6 +165,12 @@ class OMRApp {
         this.onWorkerError(payload, id);
         break;
 
+      case 'omrComplete':
+        // Batch processing completion message - handled by batch-processor.js
+        // Just log for debugging, batch-processor will handle the actual result
+        console.log('[App] OMR batch processing completed for job:', id);
+        break;
+
       default:
         console.warn('[App] 未知的 Worker 訊息類型:', type);
     }
