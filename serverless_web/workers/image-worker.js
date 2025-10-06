@@ -615,7 +615,10 @@ function correctPerspective(src, templatePageDimensions = null) {
       src,
       corrected,
       M,
-      new cv.Size(outputWidth, outputHeight)
+      new cv.Size(outputWidth, outputHeight),
+      cv.INTER_LINEAR,
+      cv.BORDER_CONSTANT,
+      new cv.Scalar(255, 255, 255, 255)  // White border
     );
 
     // 11. 建立視覺化影像（顯示檢測到的角點）
@@ -665,11 +668,12 @@ function correctPerspective(src, templatePageDimensions = null) {
  */
 function sortCorners(approx) {
   // 將 Mat 轉換為座標陣列
+  // Note: cv.approxPolyDP returns CV_32SC2 (32-bit signed integer, 2 channels)
   const points = [];
   for (let i = 0; i < approx.rows; i++) {
     points.push({
-      x: approx.data32F[i * 2],
-      y: approx.data32F[i * 2 + 1]
+      x: approx.data32S[i * 2],
+      y: approx.data32S[i * 2 + 1]
     });
   }
 
@@ -869,8 +873,6 @@ function detectAndParseAnswers(correctedMat, template) {
         fillRatio
       });
     }
-
-    console.log(`[Worker] Detected answers:`, answers);
 
     // 建立視覺化結果 - 只標記填塗的格子，不顯示對錯
     const visualization = correctedMat.clone();
