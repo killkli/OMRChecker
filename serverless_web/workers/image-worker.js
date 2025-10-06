@@ -391,9 +391,10 @@ async function processImage(payload, id) {
     const preprocessResults = preprocessImage(src);
     processedMats.push(...Object.values(preprocessResults));
 
-    // 3. 透視校正
+    // 3. 透視校正 - 使用模板的 pageDimensions (如果有)
     sendProgress(40, '執行透視校正...', id);
-    const perspectiveResult = correctPerspective(src);
+    const templatePageDimensions = currentTemplate ? currentTemplate.pageDimensions : null;
+    const perspectiveResult = correctPerspective(src, templatePageDimensions);
     processedMats.push(perspectiveResult.corrected);
     if (perspectiveResult.visualization) {
       processedMats.push(perspectiveResult.visualization);
@@ -487,7 +488,7 @@ function preprocessImage(src) {
 /**
  * 透視校正
  */
-function correctPerspective(src) {
+function correctPerspective(src, templatePageDimensions = null) {
   const tempMats = [];
 
   try {
@@ -571,13 +572,22 @@ function correctPerspective(src) {
     // 8. 計算目標尺寸
     const [tl, tr, br, bl] = corners;
 
-    const widthTop = Math.hypot(tr.x - tl.x, tr.y - tl.y);
-    const widthBottom = Math.hypot(br.x - bl.x, br.y - bl.y);
-    const maxWidth = Math.max(widthTop, widthBottom);
+    // 如果有提供模板的 pageDimensions，使用它；否則根據檢測到的角點計算
+    let outputWidth, outputHeight;
+    if (templatePageDimensions && Array.isArray(templatePageDimensions) && templatePageDimensions.length === 2) {
+      outputWidth = templatePageDimensions[0];
+      outputHeight = templatePageDimensions[1];
+      console.log(`[Worker] Using template pageDimensions: ${outputWidth}x${outputHeight}`);
+    } else {
+      const widthTop = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+      const widthBottom = Math.hypot(br.x - bl.x, br.y - bl.y);
+      outputWidth = Math.max(widthTop, widthBottom);
 
-    const heightLeft = Math.hypot(bl.x - tl.x, bl.y - tl.y);
-    const heightRight = Math.hypot(br.x - tr.x, br.y - tr.y);
-    const maxHeight = Math.max(heightLeft, heightRight);
+      const heightLeft = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+      const heightRight = Math.hypot(br.x - tr.x, br.y - tr.y);
+      outputHeight = Math.max(heightLeft, heightRight);
+      console.log(`[Worker] Calculated dimensions from corners: ${outputWidth}x${outputHeight}`);
+    }
 
     // 9. 建立透視變換矩陣
     const srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
@@ -590,9 +600,9 @@ function correctPerspective(src) {
 
     const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
       0, 0,
-      maxWidth, 0,
-      maxWidth, maxHeight,
-      0, maxHeight
+      outputWidth, 0,
+      outputWidth, outputHeight,
+      0, outputHeight
     ]);
     tempMats.push(dstPoints);
 
@@ -605,7 +615,7 @@ function correctPerspective(src) {
       src,
       corrected,
       M,
-      new cv.Size(maxWidth, maxHeight)
+      new cv.Size(outputWidth, outputHeight)
     );
 
     // 11. 建立視覺化影像（顯示檢測到的角點）
@@ -1066,8 +1076,9 @@ async function processOMRBatch(data) {
     const preprocessResults = preprocessImage(src);
     processedMats.push(...Object.values(preprocessResults));
 
-    // 3. 透視校正
-    const perspectiveResult = correctPerspective(src);
+    // 3. 透視校正 - 使用模板的 pageDimensions (如果有)
+    const templatePageDimensions = currentTemplate ? currentTemplate.pageDimensions : null;
+    const perspectiveResult = correctPerspective(src, templatePageDimensions);
     processedMats.push(perspectiveResult.corrected);
     if (perspectiveResult.visualization) {
       processedMats.push(perspectiveResult.visualization);
