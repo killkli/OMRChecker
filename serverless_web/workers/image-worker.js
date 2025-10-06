@@ -822,9 +822,10 @@ function detectAndParseAnswers(correctedMat, template) {
       const { x, y, width, height, fieldLabel, fieldValue } = expectedBubble;
 
       // Create ROI rect for this bubble
+      // Note: x, y are top-left corner coordinates (not center), same as Python version
       const roi = new cv.Rect(
-        Math.max(0, x - Math.floor(width / 2)),
-        Math.max(0, y - Math.floor(height / 2)),
+        Math.max(0, x),
+        Math.max(0, y),
         width,
         height
       );
