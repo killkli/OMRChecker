@@ -113,6 +113,89 @@ class BatchProcessor {
   }
 
   /**
+   * Load marker image to worker (loads as Image, converts to ImageData, sends to worker)
+   */
+  async loadMarkerToWorker(markerFile) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        const markerDataURL = e.target.result;
+
+        // Load image in main thread to convert to ImageData
+        const img = new Image();
+        img.onload = () => {
+          // Convert to ImageData
+          const canvas = new OffscreenCanvas(img.width, img.height);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const imageData = ctx.getImageData(0, 0, img.width, img.height);
+
+          // Extract CropOnMarkers options from template
+          let markerOptions = {};
+          if (this.template && this.template.preProcessors) {
+            const cropOnMarkersConfig = this.template.preProcessors.find(
+              p => p.name === 'CropOnMarkers'
+            );
+            if (cropOnMarkersConfig && cropOnMarkersConfig.options) {
+              markerOptions = cropOnMarkersConfig.options;
+            }
+          }
+
+          // Create a unique ID for tracking this request
+          const messageId = `marker_${Date.now()}`;
+
+          // Set up one-time message listener for the response
+          const responseHandler = (event) => {
+            const { type, id, payload, error } = event.data;
+
+            if (id === messageId) {
+              // Remove listener after receiving response
+              this.worker.removeEventListener('message', responseHandler);
+
+              if (type === 'result' && payload && payload.success) {
+                this.log('success', `標記圖檔已載入到 Worker: ${payload.markerSize[0]}x${payload.markerSize[1]}`);
+                resolve(payload);
+              } else if (type === 'error') {
+                this.log('error', `Worker 標記載入失敗: ${error}`);
+                reject(new Error(error));
+              }
+            }
+          };
+
+          this.worker.addEventListener('message', responseHandler);
+
+          // Send marker ImageData to worker
+          this.worker.postMessage({
+            type: 'load_marker',
+            id: messageId,
+            payload: {
+              imageData: {
+                data: Array.from(imageData.data),
+                width: imageData.width,
+                height: imageData.height
+              },
+              options: markerOptions
+            }
+          });
+        };
+
+        img.onerror = () => {
+          reject(new Error('標記圖檔載入失敗'));
+        };
+
+        img.src = markerDataURL;
+      };
+
+      reader.onerror = () => {
+        reject(new Error('標記圖檔讀取失敗'));
+      };
+
+      reader.readAsDataURL(markerFile);
+    });
+  }
+
+  /**
    * 設定選項
    */
   setOptions(options) {
@@ -143,6 +226,12 @@ class BatchProcessor {
     this.log('info', `開始批次處理 ${this.files.length} 張圖片`);
 
     try {
+      // Load marker image to worker if provided (once before batch processing)
+      if (this.marker) {
+        this.log('info', `載入標記圖檔到 Worker: ${this.marker.name}`);
+        await this.loadMarkerToWorker(this.marker);
+      }
+
       for (let i = 0; i < this.files.length; i++) {
         this.currentIndex = i;
         const file = this.files[i];
@@ -313,7 +402,6 @@ class BatchProcessor {
       message
     };
     this.logs.push(logEntry);
-    console.log(`[${timestamp}] [${level.toUpperCase()}] ${message}`);
   }
 
   /**

@@ -50,8 +50,6 @@ class OMRApp {
    * 初始化應用程式
    */
   init() {
-    console.log('🚀 OMR Checker 應用程式啟動');
-
     // 檢查 Worker 支援
     if (!window.Worker) {
       console.warn('⚠️ 瀏覽器不支援 Web Workers，將使用主執行緒處理');
@@ -71,8 +69,6 @@ class OMRApp {
    * 初始化 Worker 模式
    */
   initWorker() {
-    console.log('🔧 初始化 Web Worker...');
-
     // 建立 Worker
     this.worker = new Worker('./workers/image-worker.js');
 
@@ -99,8 +95,6 @@ class OMRApp {
    * 初始化主執行緒模式（降級方案）
    */
   initMainThread() {
-    console.log('🔧 使用主執行緒模式...');
-
     // 註冊 OpenCV.js 載入回調
     window.opencvLoader.onProgress((percent) => {
       this.updateProgress(percent);
@@ -132,7 +126,6 @@ class OMRApp {
 
       // 設定逾時（30 秒）
       setTimeout(() => {
-        console.log(this.pendingRequests, id);
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
           reject(new Error('Worker 回應逾時, id: ', id));
@@ -146,7 +139,6 @@ class OMRApp {
    */
   handleWorkerMessage(e) {
     const { type, payload, id } = e.data;
-    console.log("received: ", type, payload, id)
 
     switch (type) {
       case 'ready':
@@ -167,8 +159,6 @@ class OMRApp {
 
       case 'omrComplete':
         // Batch processing completion message - handled by batch-processor.js
-        // Just log for debugging, batch-processor will handle the actual result
-        console.log('[App] OMR batch processing completed for job:', id);
         break;
 
       default:
@@ -180,8 +170,6 @@ class OMRApp {
    * Worker 就緒
    */
   onWorkerReady(payload) {
-    console.log('✅ Worker 已就緒');
-
     // 更新狀態卡片
     this.elements.statusCard.classList.add('ready');
     this.elements.statusIcon.textContent = '✅';
@@ -210,8 +198,6 @@ class OMRApp {
   onWorkerProgress(payload, id) {
     const { percent, message } = payload;
 
-    console.log(`📊 處理進度: ${percent}% - ${message}`);
-
     // 更新進度條（如果 UI 元素存在）
     if (this.elements.processingProgress) {
       this.elements.processingProgress.style.width = `${percent}%`;
@@ -232,7 +218,6 @@ class OMRApp {
     if (request) {
       request.resolve(payload);
       this.pendingRequests.delete(id);
-      console.log('Request Success, id: ', id);
     }
   }
 
@@ -280,16 +265,12 @@ class OMRApp {
       this.elements.statusText.textContent = '載入完成！';
       this.elements.loadingProgress.classList.add('complete');
     }
-
-    console.log(`📊 載入進度: ${progress}%`);
   }
 
   /**
    * OpenCV.js 載入完成處理
    */
   onOpenCVReady() {
-    console.log('✅ OpenCV.js 已就緒,開始初始化應用程式');
-
     // 更新狀態卡片
     this.elements.statusCard.classList.add('ready');
     this.elements.statusIcon.textContent = '✅';
@@ -306,7 +287,6 @@ class OMRApp {
 
     // 初始化 ImageProcessor
     this.imageProcessor = new ImageProcessor();
-    console.log('✅ ImageProcessor 已初始化');
 
     // 載入預設模板
     this.loadTemplate();
@@ -327,8 +307,6 @@ class OMRApp {
    */
   async loadTemplate() {
     try {
-      console.log('🔄 載入預設 OMR 模板...');
-
       // 從 JSON 檔案載入模板（添加時間戳避免快取）
       const response = await fetch(`./templates/default-template.json?t=${Date.now()}`);
       if (!response.ok) {
@@ -336,14 +314,12 @@ class OMRApp {
       }
 
       this.template = await response.json();
-      console.log(`✅ 模板載入成功: ${this.template.name}`);
 
       // 如果使用 Worker，將模板傳送給 Worker
       if (this.useWorker && this.worker) {
         await this.sendWorkerMessage('load_template', {
           template: this.template
         });
-        console.log('✅ 模板已傳送至 Worker');
       }
 
     } catch (error) {
@@ -379,11 +355,6 @@ class OMRApp {
     try {
       this.storage = new OMRStorage();
       await this.storage.init();
-      console.log('✅ Storage 已初始化');
-
-      // 顯示儲存空間資訊
-      const estimate = await this.storage.getStorageEstimate();
-      console.log(`💾 儲存空間: ${estimate.usageInMB}MB / ${estimate.quotaInMB}MB (${estimate.percentage}%)`);
     } catch (error) {
       console.warn('⚠️ Storage 初始化失敗:', error.message);
       console.warn('將無法使用儲存功能');
@@ -488,8 +459,6 @@ class OMRApp {
 
     // 批次處理相關事件
     this.setupBatchProcessingListeners();
-
-    console.log('✅ 事件監聽器已設定');
   }
 
   /**
@@ -608,8 +577,6 @@ class OMRApp {
    */
   async processFile(file) {
     try {
-      console.log('📁 開始處理檔案:', file.name);
-
       // 1. 基本驗證
       if (!this.imageProcessor.validateFile(file)) {
         this.showError('檔案格式不支援或大小超過限制（最大 10MB）');
@@ -628,7 +595,6 @@ class OMRApp {
       this.showProgress('載入影像中...');
       const imgElement = await this.imageProcessor.loadImageFromFile(file);
       this.currentFile = file;
-      console.log('✅ 影像載入成功');
 
       if (this.useWorker) {
         // 使用 Worker 處理
@@ -695,9 +661,6 @@ class OMRApp {
         results.corners = perspectiveResult.visualization;
         results.corrected = perspectiveResult.corrected;
 
-        console.log('✅ 透視校正完成');
-        console.log('  角點座標:', perspectiveResult.corners);
-
         mat.delete();
 
         // 6. 答案檢測與解析（Stage 4）
@@ -710,9 +673,6 @@ class OMRApp {
             );
 
             results.omr = omrResult;
-            console.log('✅ 答案檢測完成');
-            console.log(`  答對: ${omrResult.scoring.correctCount}/${omrResult.scoring.totalQuestions}`);
-            console.log(`  分數: ${omrResult.scoring.score}/${omrResult.scoring.totalPoints}`);
 
           } catch (error) {
             console.warn('⚠️ 答案檢測失敗:', error.message);
@@ -766,8 +726,6 @@ class OMRApp {
         this.imageDataToCanvas('canvas-omr-result', results.omr.visualization);
         this.displayOMRResults(results.omr);
       }
-
-      console.log('✅ 處理結果已顯示在 Canvas');
     } catch (error) {
       console.error('❌ Canvas 顯示失敗:', error);
       this.showError('結果顯示失敗：' + error.message);
@@ -878,8 +836,6 @@ class OMRApp {
    */
   reprocessImage() {
     if (this.currentFile) {
-      console.log('🔄 重新處理影像');
-
       // 清理舊的 Mat（主執行緒模式）
       if (!this.useWorker && this.imageProcessor) {
         this.imageProcessor.cleanup();
@@ -893,8 +849,6 @@ class OMRApp {
    * 上傳新圖片
    */
   uploadNewImage() {
-    console.log('📤 上傳新圖片');
-
     // 清理記憶體
     if (this.imageProcessor) {
       this.imageProcessor.cleanup();
@@ -953,7 +907,6 @@ class OMRApp {
    * 顯示進度訊息
    */
   showProgress(message) {
-    console.log('⏳', message);
     // 可以在此添加載入動畫或進度提示
   }
 
@@ -961,7 +914,6 @@ class OMRApp {
    * 顯示成功訊息
    */
   showSuccess(message) {
-    console.log('✅', message);
     this.showToast('success', '成功', message);
   }
 
@@ -997,13 +949,6 @@ class OMRApp {
     try {
       // 建立一個簡單的矩陣來測試 OpenCV 是否正常運作
       testMat = new cv.Mat(100, 100, cv.CV_8UC3);
-
-      console.log('🧪 OpenCV 功能測試:');
-      console.log(`  - 矩陣建立: ✅ (${testMat.rows}x${testMat.cols})`);
-      console.log(`  - 矩陣類型: ${testMat.type()}`);
-      console.log(`  - 記憶體管理: ✅`);
-
-      console.log('✅ OpenCV 所有功能測試通過');
     } catch (e) {
       console.error('❌ OpenCV 功能測試失敗:', e);
     } finally {
@@ -1050,8 +995,6 @@ class OMRApp {
     }
 
     try {
-      console.log('💾 開始儲存結果...');
-
       // 將 Canvas 轉換為 Blob
       const originalBlob = await this.canvasToBlob('canvas-original');
       const processedBlob = this.currentResults.omr ?
@@ -1074,13 +1017,8 @@ class OMRApp {
       };
 
       const id = await this.storage.saveResult(resultData);
-      console.log(`✅ 結果已儲存，ID: ${id}`);
 
       this.showSuccess('處理結果已儲存！');
-
-      // 更新儲存空間資訊
-      const estimate = await this.storage.getStorageEstimate();
-      console.log(`💾 儲存空間: ${estimate.usageInMB}MB / ${estimate.quotaInMB}MB (${estimate.percentage}%)`);
 
     } catch (error) {
       console.error('❌ 儲存失敗:', error);
@@ -1123,8 +1061,6 @@ class OMRApp {
     }
 
     try {
-      console.log('📋 載入歷史記錄...');
-
       const results = await this.storage.getAllResults();
 
       if (results.length === 0) {
@@ -1212,7 +1148,6 @@ class OMRApp {
 
     try {
       await this.storage.deleteResult(id);
-      console.log(`✅ 記錄已刪除，ID: ${id}`);
 
       // 重新載入歷史記錄
       this.showHistory();
@@ -1233,7 +1168,6 @@ class OMRApp {
 
     try {
       await this.storage.deleteAllResults();
-      console.log('✅ 所有記錄已刪除');
 
       this.showSuccess('所有記錄已清空');
 
@@ -1388,11 +1322,97 @@ class OMRApp {
         fileName.style.color = '#10b981';
       }
 
-      this.showSuccess('模板載入成功');
+      // 檢查是否需要自動生成 marker
+      await this.checkAndGenerateMarker();
+
       this.checkBatchReadiness();
     } catch (error) {
       this.showError('模板載入失敗: ' + error.message);
     }
+  }
+
+  /**
+   * 檢查模板並自動生成 marker（如果需要且未提供）
+   */
+  async checkAndGenerateMarker() {
+    if (!this.template || !this.template.preProcessors) return;
+
+    // 檢查是否有 CropOnMarkers preprocessor
+    const cropOnMarkers = this.template.preProcessors.find(p => p.name === 'CropOnMarkers');
+    if (!cropOnMarkers) return;
+
+    // 如果用戶已經上傳了 marker，就不需要生成
+    if (this.batchMarkerFile) {
+      return;
+    }
+
+    // 自動生成 marker
+    try {
+      const markerFile = await this.generateConcentricCircleMarker();
+      this.batchMarkerFile = markerFile;
+    } catch (error) {
+      console.error('❌ Marker 生成失敗:', error);
+    }
+  }
+
+  /**
+   * 生成同心圓 marker 圖片（模仿 Python 版本的邏輯）
+   * @returns {Promise<File>} - Marker 圖片檔案
+   */
+  async generateConcentricCircleMarker() {
+    // 從模板獲取頁面尺寸
+    const pageDims = this.template.pageDimensions || [1850, 2720];
+    const pageWidth = pageDims[0];
+
+    // marker 大小為頁面寬度的 1/10
+    const markerSize = Math.round(pageWidth / 10);
+
+    // 同心圓比例（與 Python 版本一致）
+    const MARKER_MIDDLE_CIRCLE_RATIO = 0.7;  // 中圈 70%
+    const MARKER_INNER_CIRCLE_RATIO = 0.4;   // 內圈 40%
+
+    // 創建 canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = markerSize;
+    canvas.height = markerSize;
+    const ctx = canvas.getContext('2d');
+
+    // 填充白色背景
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, markerSize, markerSize);
+
+    const center = markerSize / 2;
+    const radius = markerSize / 2;
+
+    // 畫外圈（黑色，100%）
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(center, center, radius, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // 畫中圈（白色，70%）
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(center, center, radius * MARKER_MIDDLE_CIRCLE_RATIO, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // 畫內圈（黑色，40%）
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(center, center, radius * MARKER_INNER_CIRCLE_RATIO, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // 轉換為 Blob 然後 File
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], 'auto_generated_marker.jpg', { type: 'image/jpeg' });
+          resolve(file);
+        } else {
+          reject(new Error('Failed to generate marker blob'));
+        }
+      }, 'image/jpeg', 0.95);
+    });
   }
 
   /**

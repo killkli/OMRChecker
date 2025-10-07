@@ -49,8 +49,6 @@ class OMRStorage {
                     resultsStore.createIndex('timestamp', 'timestamp', { unique: false });
                     resultsStore.createIndex('templateName', 'templateName', { unique: false });
                     resultsStore.createIndex('score', 'score', { unique: false });
-
-                    console.log('✅ Results object store 建立成功');
                 }
 
                 // 建立 templates object store
@@ -60,8 +58,6 @@ class OMRStorage {
                     });
 
                     templatesStore.createIndex('createdAt', 'createdAt', { unique: false });
-
-                    console.log('✅ Templates object store 建立成功');
                 }
             };
 
@@ -69,7 +65,6 @@ class OMRStorage {
                 this.db = event.target.result;
                 this.isInitialized = true;
 
-                console.log(`✅ IndexedDB 已初始化: ${this.DB_NAME} v${this.DB_VERSION}`);
                 resolve();
             };
 
@@ -147,7 +142,6 @@ class OMRStorage {
 
                 request.onsuccess = () => {
                     const id = request.result;
-                    console.log(`✅ 結果已儲存，ID: ${id}`);
                     resolve(id);
                 };
 
@@ -185,7 +179,6 @@ class OMRStorage {
                         results.push(cursor.value);
                         cursor.continue();
                     } else {
-                        console.log(`✅ 查詢到 ${results.length} 筆結果`);
                         resolve(results);
                     }
                 };
@@ -216,13 +209,6 @@ class OMRStorage {
 
                 request.onsuccess = () => {
                     const result = request.result;
-
-                    if (result) {
-                        console.log(`✅ 找到結果，ID: ${id}`);
-                    } else {
-                        console.log(`⚠️ 找不到結果，ID: ${id}`);
-                    }
-
                     resolve(result);
                 };
 
@@ -251,7 +237,6 @@ class OMRStorage {
                 const request = store.delete(id);
 
                 request.onsuccess = () => {
-                    console.log(`✅ 結果已刪除，ID: ${id}`);
                     resolve();
                 };
 
@@ -279,7 +264,6 @@ class OMRStorage {
                 const request = store.clear();
 
                 request.onsuccess = () => {
-                    console.log('✅ 所有結果已清空');
                     resolve();
                 };
 
@@ -326,7 +310,6 @@ class OMRStorage {
                 const request = store.put(data);  // put 會覆蓋已存在的
 
                 request.onsuccess = () => {
-                    console.log(`✅ 模板已儲存: ${template.name}`);
                     resolve();
                 };
 
@@ -356,13 +339,6 @@ class OMRStorage {
 
                 request.onsuccess = () => {
                     const template = request.result;
-
-                    if (template) {
-                        console.log(`✅ 找到模板: ${name}`);
-                    } else {
-                        console.log(`⚠️ 找不到模板: ${name}`);
-                    }
-
                     resolve(template);
                 };
 
@@ -391,7 +367,6 @@ class OMRStorage {
 
                 request.onsuccess = () => {
                     const templates = request.result;
-                    console.log(`✅ 查詢到 ${templates.length} 個模板`);
                     resolve(templates);
                 };
 
@@ -420,7 +395,6 @@ class OMRStorage {
                 const request = store.delete(name);
 
                 request.onsuccess = () => {
-                    console.log(`✅ 模板已刪除: ${name}`);
                     resolve();
                 };
 
@@ -467,7 +441,6 @@ class OMRStorage {
             this.db.close();
             this.db = null;
             this.isInitialized = false;
-            console.log('✅ 資料庫連線已關閉');
         }
     }
 }

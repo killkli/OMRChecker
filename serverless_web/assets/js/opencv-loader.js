@@ -69,12 +69,9 @@ class OpenCVLoader {
         this.isReady = true;
         const loadTime = Date.now() - this.loadStartTime;
 
-        console.log(`✅ OpenCV.js 載入完成 (耗時: ${(loadTime / 1000).toFixed(2)} 秒)`);
-
         // 獲取版本資訊
         try {
             const buildInfo = cv.getBuildInformation();
-            console.log('OpenCV 版本資訊:', buildInfo);
         } catch (e) {
             console.warn('無法取得 OpenCV 版本資訊:', e);
         }

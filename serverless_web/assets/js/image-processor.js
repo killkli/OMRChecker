@@ -106,7 +106,6 @@ class ImageProcessor {
                 if (arr[0] === ImageProcessor.MAGIC_NUMBERS.JPEG[0] &&
                     arr[1] === ImageProcessor.MAGIC_NUMBERS.JPEG[1] &&
                     arr[2] === ImageProcessor.MAGIC_NUMBERS.JPEG[2]) {
-                    console.log('✅ 驗證通過: JPEG 檔案');
                     resolve(true);
                     return;
                 }
@@ -116,7 +115,6 @@ class ImageProcessor {
                     arr[1] === ImageProcessor.MAGIC_NUMBERS.PNG[1] &&
                     arr[2] === ImageProcessor.MAGIC_NUMBERS.PNG[2] &&
                     arr[3] === ImageProcessor.MAGIC_NUMBERS.PNG[3]) {
-                    console.log('✅ 驗證通過: PNG 檔案');
                     resolve(true);
                     return;
                 }

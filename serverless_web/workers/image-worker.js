@@ -9,12 +9,14 @@ let isOpenCVReady = false;
 let processingQueue = [];
 let isProcessing = false;
 let currentTemplate = null;
+let markerImage = null;  // Preprocessed marker for CropOnMarkers
 
 // 訊息類型常數
 const MessageType = {
   // 從主執行緒接收
   INIT: 'init',
   LOAD_TEMPLATE: 'load_template',
+  LOAD_MARKER: 'load_marker',
   PROCESS_IMAGE: 'process_image',
   PROCESS_OMR: 'processOMR',  // 批次處理使用
 
@@ -105,11 +107,10 @@ function parseFieldBlocks(template) {
   for (const [blockName, fieldBlock] of Object.entries(template.fieldBlocks)) {
     // Skip QR Code blocks - they are handled separately in detectAndParseAnswers
     const isQRBlock = fieldBlock.fieldType === 'QTYPE_CUSTOM' ||
-                     blockName === 'QR_Code' ||
-                     blockName.includes('QR');
+      blockName === 'QR_Code' ||
+      blockName.includes('QR');
 
     if (isQRBlock) {
-      console.log(`[Worker] Skipping QR block: ${blockName}`);
       continue;
     }
 
@@ -227,14 +228,12 @@ function parseTemplate(template) {
   // Try Python fieldBlocks format first
   const fieldBlocksResult = parseFieldBlocks(template);
   if (fieldBlocksResult) {
-    console.log('[Worker] Detected Python fieldBlocks format');
     return fieldBlocksResult;
   }
 
   // Try our regions format
   const regionsResult = parseRegionsFormat(template);
   if (regionsResult) {
-    console.log('[Worker] Detected regions format');
     return regionsResult;
   }
 
@@ -256,6 +255,10 @@ self.onmessage = function (e) {
       loadTemplate(payload.template, id);
       break;
 
+    case MessageType.LOAD_MARKER:
+      loadMarker(payload.imageData, payload.options, id);
+      break;
+
     case MessageType.PROCESS_IMAGE:
       queueImageProcessing(payload, id);
       break;
@@ -274,7 +277,6 @@ self.onmessage = function (e) {
  * 初始化 OpenCV.js
  */
 function initOpenCV(opencvPath, id) {
-  console.log(opencvPath);
   let checker_handle, timeout_handle;
   checker_handle = null;
   timeout_handle = null;
@@ -284,7 +286,6 @@ function initOpenCV(opencvPath, id) {
     if (typeof self['cv'] === 'object') {
       cv = self['cv'];
       isOpenCVReady = true;
-      console.log('[Worker] OpenCV.js 已就緒');
       sendMessage(MessageType.READY, {
         version: cv.getBuildInformation()
       });
@@ -293,13 +294,10 @@ function initOpenCV(opencvPath, id) {
       }, id);
       clearTimeout(timeout_handle);
       clearInterval(checker_handle);
-    } else {
-      console.log('OpenCV 仍在讀取中')
     }
   }, 500);
 
   timeout_handle = setTimeout(() => {
-    console.log("openCV 初始化失敗")
     sendError('OpenCV.js 初始化失敗');
     clearInterval(checker_handle);
   }, 15000)
@@ -315,7 +313,6 @@ function loadTemplate(template, id) {
     }
 
     currentTemplate = template;
-    console.log('[Worker] 模板已載入:', template.name);
 
     sendMessage(MessageType.RESULT, {
       success: true,
@@ -324,6 +321,97 @@ function loadTemplate(template, id) {
 
   } catch (error) {
     sendError('模板載入失敗: ' + error.message, id);
+  }
+}
+
+/**
+ * 載入並預處理 Marker 影像 (Python CropOnMarkers 相容)
+ * @param {object} imageData - ImageData from main thread
+ * @param {object} options - CropOnMarkers 選項
+ */
+function loadMarker(imageData, options, id) {
+  let marker = null;
+  let resized = null;
+  let blurred = null;
+  let normalized = null;
+
+  try {
+    if (!isOpenCVReady) {
+      throw new Error('OpenCV.js 尚未就緒');
+    }
+
+    // 1. Convert ImageData to cv.Mat
+    marker = cv.matFromImageData({
+      data: new Uint8ClampedArray(imageData.data),
+      width: imageData.width,
+      height: imageData.height
+    });
+
+    // 2. Convert to grayscale if needed
+    if (marker.channels() > 1) {
+      const gray = new cv.Mat();
+      cv.cvtColor(marker, gray, cv.COLOR_RGBA2GRAY);
+      marker.delete();
+      marker = gray;
+    }
+
+    // 3. Resize based on sheetToMarkerWidthRatio (matching Python logic)
+    // Python: marker = resize_util(marker, processing_width / sheetToMarkerWidthRatio)
+    const ratio = options.sheetToMarkerWidthRatio || 10;
+    const pageDimensions = currentTemplate?.pageDimensions || [1850, 2720];
+    const processingWidth = pageDimensions[0];
+    const targetWidth = Math.round(processingWidth / ratio);
+    // Maintain aspect ratio
+    const aspectRatio = marker.rows / marker.cols;
+    const targetHeight = Math.round(targetWidth * aspectRatio);
+    resized = new cv.Mat();
+    cv.resize(marker, resized, new cv.Size(targetWidth, targetHeight), 0, 0, cv.INTER_AREA);
+    marker.delete();  // Don't need original anymore
+    marker = null;
+
+    // 4. Apply Gaussian blur
+    blurred = new cv.Mat();
+    cv.GaussianBlur(resized, blurred, new cv.Size(5, 5), 0);
+    resized.delete();  // Don't need resized anymore
+    resized = null;
+
+    // 5. Normalize
+    normalized = new cv.Mat();
+    cv.normalize(blurred, normalized, 0, 255, cv.NORM_MINMAX);
+    blurred.delete();  // Don't need blurred anymore
+    blurred = null;
+
+    // 6. Apply erode-subtract if enabled (default true)
+    let processed = normalized.clone();
+    if (options.apply_erode_subtract !== false) {
+      const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+      const eroded = new cv.Mat();
+      cv.erode(normalized, eroded, kernel, new cv.Point(-1, -1), 5);
+      cv.subtract(normalized, eroded, processed);
+      eroded.delete();
+      kernel.delete();
+    }
+    normalized.delete();  // Don't need normalized anymore
+    normalized = null;
+
+    // Store the processed marker globally
+    if (markerImage) {
+      markerImage.delete();
+    }
+    markerImage = processed;
+
+    sendMessage(MessageType.RESULT, {
+      success: true,
+      markerSize: [markerImage.cols, markerImage.rows]
+    }, id);
+
+  } catch (error) {
+    // Cleanup on error
+    if (marker) marker.delete();
+    if (resized) resized.delete();
+    if (blurred) blurred.delete();
+    if (normalized) normalized.delete();
+    sendError('Marker 載入失敗: ' + error.message, id);
   }
 }
 
@@ -391,10 +479,22 @@ async function processImage(payload, id) {
     const preprocessResults = preprocessImage(src);
     processedMats.push(...Object.values(preprocessResults));
 
-    // 3. 透視校正 - 使用模板的 pageDimensions (如果有)
+    // 3. 透視校正 - 使用模板的 pageDimensions 和 CropOnMarkers 設定
     sendProgress(40, '執行透視校正...', id);
     const templatePageDimensions = currentTemplate ? currentTemplate.pageDimensions : null;
-    const perspectiveResult = correctPerspective(src, templatePageDimensions);
+
+    // Extract CropOnMarkers options from template
+    let markerOptions = {};
+    if (currentTemplate && currentTemplate.preProcessors) {
+      const cropOnMarkersConfig = currentTemplate.preProcessors.find(
+        p => p.name === 'CropOnMarkers'
+      );
+      if (cropOnMarkersConfig && cropOnMarkersConfig.options) {
+        markerOptions = cropOnMarkersConfig.options;
+      }
+    }
+
+    const perspectiveResult = correctPerspectiveWithMarkers(src, templatePageDimensions, markerOptions);
     processedMats.push(perspectiveResult.corrected);
     if (perspectiveResult.visualization) {
       processedMats.push(perspectiveResult.visualization);
@@ -577,7 +677,6 @@ function correctPerspective(src, templatePageDimensions = null) {
     if (templatePageDimensions && Array.isArray(templatePageDimensions) && templatePageDimensions.length === 2) {
       outputWidth = templatePageDimensions[0];
       outputHeight = templatePageDimensions[1];
-      console.log(`[Worker] Using template pageDimensions: ${outputWidth}x${outputHeight}`);
     } else {
       const widthTop = Math.hypot(tr.x - tl.x, tr.y - tl.y);
       const widthBottom = Math.hypot(br.x - bl.x, br.y - bl.y);
@@ -586,7 +685,6 @@ function correctPerspective(src, templatePageDimensions = null) {
       const heightLeft = Math.hypot(bl.x - tl.x, bl.y - tl.y);
       const heightRight = Math.hypot(br.x - tr.x, br.y - tr.y);
       outputHeight = Math.max(heightLeft, heightRight);
-      console.log(`[Worker] Calculated dimensions from corners: ${outputWidth}x${outputHeight}`);
     }
 
     // 9. 建立透視變換矩陣
@@ -664,8 +762,545 @@ function correctPerspective(src, templatePageDimensions = null) {
 }
 
 /**
+ * 透視校正 - 使用 Marker 模板匹配 (Python CropOnMarkers 相容)
+ * 完全複製 Python 版本的邏輯
+ */
+function correctPerspectiveWithMarkers(src, templatePageDimensions = null, markerOptions = {}) {
+  const tempMats = [];
+  // Assumes 'markerImage' is a globally accessible cv.Mat or similar.
+  // We use a local variable to potentially hold a generated marker.
+  let currentMarkerImage = markerImage;
+
+  try {
+    if (!currentMarkerImage) {
+      console.warn('[Worker] No marker image provided. Attempting to generate default marker.');
+      const defaultMarkerSize = markerOptions.default_marker_size || 100; // Use a default size of 100 pixels
+
+      try {
+        currentMarkerImage = generateDefaultMarkerImage(defaultMarkerSize, markerOptions);
+        tempMats.push(currentMarkerImage); // Add to tempMats for proper memory release
+        markerImage = currentMarkerImage;
+      } catch (e) {
+        console.error('[Worker] Failed to generate default marker image:', e);
+        console.warn('[Worker] Falling back to contour detection as no marker image is available.');
+        return correctPerspective(src, templatePageDimensions); // Fallback if generation fails
+      }
+    }
+
+    // After attempting to load or generate, if 'currentMarkerImage' is still null/undefined,
+    // then we genuinely don't have a marker to work with.
+    if (!currentMarkerImage) {
+      console.warn('[Worker] Marker image is still not available after generation attempt. Falling back to contour detection.');
+      return correctPerspective(src, templatePageDimensions);
+    }
+
+    // 1. Convert to grayscale and prepare for template matching
+    let gray = new cv.Mat();
+    if (src.channels() > 1) {
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    } else {
+      gray = src.clone();
+    }
+    tempMats.push(gray);
+
+    // 2. Apply erode-subtract to the image (matching Python preprocessing)
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+    tempMats.push(kernel);
+
+    const eroded = new cv.Mat();
+    cv.erode(gray, eroded, kernel, new cv.Point(-1, -1), 5);
+    tempMats.push(eroded);
+
+    const imageErodedSub = new cv.Mat();
+    cv.subtract(gray, eroded, imageErodedSub);
+    tempMats.push(imageErodedSub);
+
+    // 3. Divide image into 4 quadrants (Python: midh = h//3, midw = w//2)
+    const midW = Math.floor(src.cols / 2);
+    const midH = Math.floor(src.rows / 3);  // HEIGHT divided by 3 (matching Python)
+    const quadrants = [
+      { origin: [0, 0], width: midW, height: midH },           // Top-left
+      { origin: [midW, 0], width: src.cols - midW, height: midH },  // Top-right
+      { origin: [0, midH], width: midW, height: src.rows - midH },  // Bottom-left
+      { origin: [midW, midH], width: src.cols - midW, height: src.rows - midH }  // Bottom-right
+    ];
+
+    const centres = [];
+    const maxMatchingValues = [];
+
+    // 4. Multi-scale template matching in each quadrant
+    // Python defaults: marker_rescale_range=[60, 130], marker_rescale_steps=15
+    const rescaleRange = markerOptions.marker_rescale_range || [60, 130];
+    const rescaleSteps = markerOptions.marker_rescale_steps || 15;
+    const descentPerStep = (rescaleRange[1] - rescaleRange[0]) / rescaleSteps;
+    const minMatchingThreshold = markerOptions.min_matching_threshold || 0.2;
+
+    for (let q = 0; q < 4; q++) {
+      const quad = quadrants[q];
+      const rect = new cv.Rect(quad.origin[0], quad.origin[1], quad.width, quad.height);
+      const roi = imageErodedSub.roi(rect);
+      tempMats.push(roi);
+
+      let maxT = -1;
+      let bestMatchLoc = null;
+      let bestScale = 1.0;
+
+      // Multi-scale search from large to small
+      for (let r0 = rescaleRange[1]; r0 >= rescaleRange[0]; r0 -= descentPerStep) {
+        const s = r0 / 100.0;
+
+        // Resize marker
+        const rescaledMarker = new cv.Mat();
+        const newSize = new cv.Size(
+          Math.round(currentMarkerImage.cols * s), // Use currentMarkerImage
+          Math.round(currentMarkerImage.rows * s)  // Use currentMarkerImage
+        );
+        cv.resize(currentMarkerImage, rescaledMarker, newSize, 0, 0, cv.INTER_AREA); // Use currentMarkerImage
+
+        // Skip if marker is larger than ROI
+        if (rescaledMarker.cols > roi.cols || rescaledMarker.rows > roi.rows) {
+          rescaledMarker.delete();
+          continue;
+        }
+
+        // Template matching
+        const result = new cv.Mat();
+        cv.matchTemplate(roi, rescaledMarker, result, cv.TM_CCOEFF_NORMED);
+
+        const minMax = cv.minMaxLoc(result);
+        const currentMaxT = minMax.maxVal;
+
+        if (currentMaxT > maxT) {
+          maxT = currentMaxT;
+          bestMatchLoc = minMax.maxLoc;
+          bestScale = s;
+        }
+
+        result.delete();
+        rescaledMarker.delete();
+      }
+
+      // Validate match
+      if (maxT < minMatchingThreshold) {
+        throw new Error(`Marker not found in quadrant ${q + 1}, max matching: ${maxT.toFixed(3)}`);
+      }
+
+      // Calculate marker center in original image coordinates
+      const markerWidth = currentMarkerImage.cols * bestScale; // Use currentMarkerImage
+      const markerHeight = currentMarkerImage.rows * bestScale; // Use currentMarkerImage
+      const centerX = quad.origin[0] + bestMatchLoc.x + markerWidth / 2;
+      const centerY = quad.origin[1] + bestMatchLoc.y + markerHeight / 2;
+
+      centres.push({ x: centerX, y: centerY });
+      maxMatchingValues.push(maxT);
+    }
+
+    // 5. Validate matching variation
+    const maxMatchingVariation = markerOptions.max_matching_variation || 0.41;
+    const matchingDiff = Math.max(...maxMatchingValues) - Math.min(...maxMatchingValues);
+    if (matchingDiff > maxMatchingVariation) {
+      console.warn(`[Worker] High matching variation: ${matchingDiff.toFixed(3)} > ${maxMatchingVariation}`);
+    }
+
+    // 6. Order points (TL, TR, BR, BL)
+    const orderedCentres = orderPoints(centres);
+
+    // 7. Calculate output dimensions
+    let outputWidth, outputHeight;
+    if (templatePageDimensions && Array.isArray(templatePageDimensions) && templatePageDimensions.length === 2) {
+      outputWidth = templatePageDimensions[0];
+      outputHeight = templatePageDimensions[1];
+    } else {
+      const [tl, tr, br, bl] = orderedCentres;
+      const widthTop = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+      const widthBottom = Math.hypot(br.x - bl.x, bl.y - bl.y);
+      outputWidth = Math.max(widthTop, widthBottom);
+
+      const heightLeft = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+      const heightRight = Math.hypot(br.x - tr.x, br.y - tr.y);
+      outputHeight = Math.max(heightLeft, heightRight);
+    }
+
+    // 8. Compute perspective transform
+    const srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      orderedCentres[0].x, orderedCentres[0].y,
+      orderedCentres[1].x, orderedCentres[1].y,
+      orderedCentres[2].x, orderedCentres[2].y,
+      orderedCentres[3].x, orderedCentres[3].y
+    ]);
+    tempMats.push(srcPoints);
+
+    const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,
+      outputWidth, 0,
+      outputWidth, outputHeight,
+      0, outputHeight
+    ]);
+    tempMats.push(dstPoints);
+
+    const M = cv.getPerspectiveTransform(srcPoints, dstPoints);
+    tempMats.push(M);
+
+    // 9. Apply perspective transform
+    const corrected = new cv.Mat();
+    cv.warpPerspective(
+      src,
+      corrected,
+      M,
+      new cv.Size(outputWidth, outputHeight),
+      cv.INTER_LINEAR,
+      cv.BORDER_CONSTANT,
+      new cv.Scalar(255, 255, 255, 255)
+    );
+
+    // 10. Create visualization
+    const visualization = src.clone();
+    orderedCentres.forEach((center, idx) => {
+      cv.circle(
+        visualization,
+        new cv.Point(center.x, center.y),
+        10,
+        [0, 255, 0, 255],
+        -1
+      );
+
+      cv.putText(
+        visualization,
+        String(idx + 1),
+        new cv.Point(center.x + 15, center.y + 15),
+        cv.FONT_HERSHEY_SIMPLEX,
+        1,
+        [255, 0, 0, 255],
+        2
+      );
+    });
+
+    return {
+      corrected,
+      visualization,
+      corners: orderedCentres
+    };
+
+  } finally {
+    tempMats.forEach(mat => {
+      if (mat && typeof mat.delete === 'function') {
+        try {
+          mat.delete();
+        } catch (e) {
+          console.warn('[Worker] 臨時 Mat 釋放失敗:', e);
+        }
+      }
+    });
+  }
+}
+
+function correctPerspectiveWithMarkers(src, templatePageDimensions = null, markerOptions = {}) {
+  const tempMats = [];
+
+  try {
+    if (!markerImage) {
+      console.warn('[Worker] Marker not loaded, falling back to contour detection');
+      return correctPerspective(src, templatePageDimensions);
+    }
+
+    // 1. Convert to grayscale and prepare for template matching
+    let gray = new cv.Mat();
+    if (src.channels() > 1) {
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    } else {
+      gray = src.clone();
+    }
+    tempMats.push(gray);
+
+    // 2. Apply erode-subtract to the image (matching Python preprocessing)
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+    tempMats.push(kernel);
+
+    const eroded = new cv.Mat();
+    cv.erode(gray, eroded, kernel, new cv.Point(-1, -1), 5);
+    tempMats.push(eroded);
+
+    const imageErodedSub = new cv.Mat();
+    cv.subtract(gray, eroded, imageErodedSub);
+    tempMats.push(imageErodedSub);
+
+    // 3. Divide image into 4 quadrants (Python: midh = h//3, midw = w//2)
+    const midW = Math.floor(src.cols / 2);
+    const midH = Math.floor(src.rows / 3);  // HEIGHT divided by 3 (matching Python)
+    const quadrants = [
+      { origin: [0, 0], width: midW, height: midH },           // Top-left
+      { origin: [midW, 0], width: src.cols - midW, height: midH },  // Top-right
+      { origin: [0, midH], width: midW, height: src.rows - midH },  // Bottom-left
+      { origin: [midW, midH], width: src.cols - midW, height: src.rows - midH }  // Bottom-right
+    ];
+
+    const centres = [];
+    const maxMatchingValues = [];
+
+    // 4. Multi-scale template matching in each quadrant
+    // Python defaults: marker_rescale_range=[60, 130], marker_rescale_steps=15
+    const rescaleRange = markerOptions.marker_rescale_range || [60, 130];
+    const rescaleSteps = markerOptions.marker_rescale_steps || 15;
+    const descentPerStep = (rescaleRange[1] - rescaleRange[0]) / rescaleSteps;
+    const minMatchingThreshold = markerOptions.min_matching_threshold || 0.2;
+
+    for (let q = 0; q < 4; q++) {
+      const quad = quadrants[q];
+      const rect = new cv.Rect(quad.origin[0], quad.origin[1], quad.width, quad.height);
+      const roi = imageErodedSub.roi(rect);
+      tempMats.push(roi);
+
+      let maxT = -1;
+      let bestMatchLoc = null;
+      let bestScale = 1.0;
+
+      // Multi-scale search from large to small
+      for (let r0 = rescaleRange[1]; r0 >= rescaleRange[0]; r0 -= descentPerStep) {
+        const s = r0 / 100.0;
+
+        // Resize marker
+        const rescaledMarker = new cv.Mat();
+        const newSize = new cv.Size(
+          Math.round(markerImage.cols * s),
+          Math.round(markerImage.rows * s)
+        );
+        cv.resize(markerImage, rescaledMarker, newSize, 0, 0, cv.INTER_AREA);
+
+        // Skip if marker is larger than ROI
+        if (rescaledMarker.cols > roi.cols || rescaledMarker.rows > roi.rows) {
+          rescaledMarker.delete();
+          continue;
+        }
+
+        // Template matching
+        const result = new cv.Mat();
+        cv.matchTemplate(roi, rescaledMarker, result, cv.TM_CCOEFF_NORMED);
+
+        const minMax = cv.minMaxLoc(result);
+        const currentMaxT = minMax.maxVal;
+
+        if (currentMaxT > maxT) {
+          maxT = currentMaxT;
+          bestMatchLoc = minMax.maxLoc;
+          bestScale = s;
+        }
+
+        result.delete();
+        rescaledMarker.delete();
+      }
+
+      // Validate match
+      if (maxT < minMatchingThreshold) {
+        throw new Error(`Marker not found in quadrant ${q + 1}, max matching: ${maxT.toFixed(3)}`);
+      }
+
+      // Calculate marker center in original image coordinates
+      const markerWidth = markerImage.cols * bestScale;
+      const markerHeight = markerImage.rows * bestScale;
+      const centerX = quad.origin[0] + bestMatchLoc.x + markerWidth / 2;
+      const centerY = quad.origin[1] + bestMatchLoc.y + markerHeight / 2;
+
+      centres.push({ x: centerX, y: centerY });
+      maxMatchingValues.push(maxT);
+    }
+
+    // 5. Validate matching variation
+    const maxMatchingVariation = markerOptions.max_matching_variation || 0.41;
+    const matchingDiff = Math.max(...maxMatchingValues) - Math.min(...maxMatchingValues);
+    if (matchingDiff > maxMatchingVariation) {
+      console.warn(`[Worker] High matching variation: ${matchingDiff.toFixed(3)} > ${maxMatchingVariation}`);
+    }
+
+    // 6. Order points (TL, TR, BR, BL)
+    const orderedCentres = orderPoints(centres);
+
+    // 7. Calculate output dimensions
+    let outputWidth, outputHeight;
+    if (templatePageDimensions && Array.isArray(templatePageDimensions) && templatePageDimensions.length === 2) {
+      outputWidth = templatePageDimensions[0];
+      outputHeight = templatePageDimensions[1];
+    } else {
+      const [tl, tr, br, bl] = orderedCentres;
+      const widthTop = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+      const widthBottom = Math.hypot(br.x - bl.x, br.y - bl.y);
+      outputWidth = Math.max(widthTop, widthBottom);
+
+      const heightLeft = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+      const heightRight = Math.hypot(br.x - tr.x, br.y - tr.y);
+      outputHeight = Math.max(heightLeft, heightRight);
+    }
+
+    // 8. Compute perspective transform
+    const srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      orderedCentres[0].x, orderedCentres[0].y,
+      orderedCentres[1].x, orderedCentres[1].y,
+      orderedCentres[2].x, orderedCentres[2].y,
+      orderedCentres[3].x, orderedCentres[3].y
+    ]);
+    tempMats.push(srcPoints);
+
+    const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,
+      outputWidth, 0,
+      outputWidth, outputHeight,
+      0, outputHeight
+    ]);
+    tempMats.push(dstPoints);
+
+    const M = cv.getPerspectiveTransform(srcPoints, dstPoints);
+    tempMats.push(M);
+
+    // 9. Apply perspective transform
+    const corrected = new cv.Mat();
+    cv.warpPerspective(
+      src,
+      corrected,
+      M,
+      new cv.Size(outputWidth, outputHeight),
+      cv.INTER_LINEAR,
+      cv.BORDER_CONSTANT,
+      new cv.Scalar(255, 255, 255, 255)
+    );
+
+    // 10. Create visualization
+    const visualization = src.clone();
+    orderedCentres.forEach((center, idx) => {
+      cv.circle(
+        visualization,
+        new cv.Point(center.x, center.y),
+        10,
+        [0, 255, 0, 255],
+        -1
+      );
+
+      cv.putText(
+        visualization,
+        String(idx + 1),
+        new cv.Point(center.x + 15, center.y + 15),
+        cv.FONT_HERSHEY_SIMPLEX,
+        1,
+        [255, 0, 0, 255],
+        2
+      );
+    });
+
+    return {
+      corrected,
+      visualization,
+      corners: orderedCentres
+    };
+
+  } finally {
+    tempMats.forEach(mat => {
+      if (mat && typeof mat.delete === 'function') {
+        try {
+          mat.delete();
+        } catch (e) {
+          console.warn('[Worker] 臨時 Mat 釋放失敗:', e);
+        }
+      }
+    });
+  }
+}
+
+/**
+ * Order 4 points: top-left, top-right, bottom-right, bottom-left
+ * Python order_points logic
+ */
+function orderPoints(points) {
+  // Calculate centroid
+  const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+  const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+
+  // Classify corners
+  let tl = null, tr = null, br = null, bl = null;
+
+  points.forEach(p => {
+    if (p.x < centerX && p.y < centerY) tl = p;
+    else if (p.x >= centerX && p.y < centerY) tr = p;
+    else if (p.x >= centerX && p.y >= centerY) br = p;
+    else bl = p;
+  });
+
+  return [tl, tr, br, bl];
+}
+
+/**
  * 排序四個角點（左上、右上、右下、左下）
  */
+/**
+ * Calculate global threshold from all bubble mean values
+ * Based on Python's get_global_threshold() - finds the largest gap in sorted values
+ */
+function calculateGlobalThreshold(values, looseness = 4) {
+  if (values.length === 0) return 255;
+  if (values.length < 3) return Math.max(...values);
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const MIN_JUMP = 25;
+
+  // Python: ls = (looseness + 1) // 2
+  const ls = Math.floor((looseness + 1) / 2);
+  const l = sorted.length - ls;
+
+  let maxJump = MIN_JUMP;
+  let threshold = 255;
+
+  // Find the largest gap between values with looseness
+  // Python: jump = q_vals[i + ls] - q_vals[i - ls]
+  for (let i = ls; i < l; i++) {
+    const jump = sorted[i + ls] - sorted[i - ls];
+
+    if (jump > maxJump) {
+      maxJump = jump;
+      threshold = sorted[i - ls] + jump / 2;
+    }
+  }
+
+  return threshold;
+}
+
+/**
+ * Calculate local threshold for a question strip (one row of bubbles)
+ * Based on Python's get_local_threshold()
+ */
+function calculateLocalThreshold(stripValues, globalThreshold, noOutliers = false) {
+  if (stripValues.length === 0) return globalThreshold;
+  if (stripValues.length < 3) {
+    const range = Math.max(...stripValues) - Math.min(...stripValues);
+    return range < 25 ? globalThreshold : (Math.max(...stripValues) + Math.min(...stripValues)) / 2;
+  }
+
+  const sorted = [...stripValues].sort((a, b) => a - b);
+  const MIN_JUMP = 25;
+  const CONFIDENT_SURPLUS = 5;
+
+  let maxJump = MIN_JUMP;
+  let threshold = 255;
+
+  // Find the largest gap between consecutive values
+  for (let i = 1; i < sorted.length - 1; i++) {
+    const jump = sorted[i + 1] - sorted[i - 1];
+    if (jump > maxJump) {
+      maxJump = jump;
+      threshold = sorted[i - 1] + jump / 2;
+    }
+  }
+
+  const confidentJump = MIN_JUMP + CONFIDENT_SURPLUS;
+
+  // If not confident in local threshold, use global (Python-style)
+  if (maxJump < confidentJump) {
+    if (noOutliers) {
+      // All Black or All White case - use global threshold
+      threshold = globalThreshold;
+    }
+    // else: Low confidence but has outliers - keep the calculated threshold
+  }
+
+  return threshold;
+}
+
 function sortCorners(approx) {
   // 將 Mat 轉換為座標陣列
   // Note: cv.approxPolyDP returns CV_32SC2 (32-bit signed integer, 2 channels)
@@ -709,16 +1344,12 @@ function detectQRCode(img, fieldBlock) {
     const boxW = bubbleDims[0];
     const boxH = bubbleDims[1];
 
-    console.log(`[Worker] QR Code detection: img size=${img.cols}x${img.rows}, origin=[${origin[0]}, ${origin[1]}], shift=${shift}, bubbleDims=[${boxW}, ${boxH}]`);
-
     // QR Code 區域需要較大的範圍
     const qrSize = Math.max(boxW, boxH) * 50;
     const x1 = Math.max(0, x - Math.floor(qrSize / 2));
     const y1 = Math.max(0, y - Math.floor(qrSize / 2));
     const x2 = Math.min(img.cols, x + Math.floor(qrSize / 2));
     const y2 = Math.min(img.rows, y + Math.floor(qrSize / 2));
-
-    console.log(`[Worker] QR region: qrSize=${qrSize}, rect=[${x1}, ${y1}, ${x2-x1}, ${y2-y1}]`);
 
     // 提取 QR Code 區域
     const rect = new cv.Rect(x1, y1, x2 - x1, y2 - y1);
@@ -748,7 +1379,6 @@ function detectQRCode(img, fieldBlock) {
 
     // 檢查解碼結果
     if (decodedInfo && decodedInfo.length > 0) {
-      console.log(`[Worker] QR Code decoded successfully: ${decodedInfo}`);
       return {
         data: decodedInfo.trim(),
         success: true
@@ -774,8 +1404,6 @@ function detectAndParseAnswers(correctedMat, template) {
     const parsedTemplate = parseTemplate(template);
     const { bubbles: expectedBubbles, answers: answerKey } = parsedTemplate;
 
-    console.log(`[Worker] Expected ${expectedBubbles.length} bubbles from template`);
-
     // 初始化答案物件
     const answers = {};
 
@@ -784,8 +1412,8 @@ function detectAndParseAnswers(correctedMat, template) {
       for (const [blockName, fieldBlock] of Object.entries(template.fieldBlocks)) {
         // 檢查是否為 QR Code 欄位
         const isQRBlock = fieldBlock.fieldType === 'QTYPE_CUSTOM' ||
-                         blockName === 'QR_Code' ||
-                         (fieldBlock.bubbleValues && fieldBlock.bubbleValues.length === 1 && blockName.includes('QR'));
+          blockName === 'QR_Code' ||
+          (fieldBlock.bubbleValues && fieldBlock.bubbleValues.length === 1 && blockName.includes('QR'));
 
         if (isQRBlock) {
           try {
@@ -793,7 +1421,6 @@ function detectAndParseAnswers(correctedMat, template) {
             if (qrResult && qrResult.data) {
               const fieldLabel = fieldBlock.fieldLabels ? fieldBlock.fieldLabels[0] : 'qr_id';
               answers[fieldLabel] = qrResult.data;
-              console.log(`[Worker] QR Code decoded: ${qrResult.data}`);
             } else {
               const fieldLabel = fieldBlock.fieldLabels ? fieldBlock.fieldLabels[0] : 'qr_id';
               answers[fieldLabel] = fieldBlock.emptyVal || '';
@@ -811,12 +1438,7 @@ function detectAndParseAnswers(correctedMat, template) {
     cv.cvtColor(correctedMat, gray, cv.COLOR_RGBA2GRAY);
     tempMats.push(gray);
 
-    // 3. 二值化
-    const binary = new cv.Mat();
-    cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
-    tempMats.push(binary);
-
-    // 4. Initialize all question fields with empty arrays
+    // 3. Initialize all question fields with empty arrays
     // This ensures every question appears in results, even if no bubbles are marked
     const allFieldLabels = new Set();
     for (const expectedBubble of expectedBubbles) {
@@ -828,17 +1450,15 @@ function detectAndParseAnswers(correctedMat, template) {
       }
     });
 
-    // 5. Analyze each expected bubble's fill ratio
-    const fillThreshold = template.detection?.fillThreshold ||
-                          template.bubble?.fillThreshold || 0.4;
-
-    const visualizationData = [];
+    // 4. Calculate mean grayscale values for all bubbles (Python-style detection)
+    // Lower mean value = darker = more filled
+    const bubbleData = [];
+    const stripData = {}; // Group by fieldLabel (question)
 
     for (const expectedBubble of expectedBubbles) {
       const { x, y, width, height, fieldLabel, fieldValue } = expectedBubble;
 
       // Create ROI rect for this bubble
-      // Note: x, y are top-left corner coordinates (not center), same as Python version
       const roi = new cv.Rect(
         Math.max(0, x),
         Math.max(0, y),
@@ -847,11 +1467,11 @@ function detectAndParseAnswers(correctedMat, template) {
       );
 
       // Ensure ROI is within image bounds
-      if (roi.x + roi.width > binary.cols) {
-        roi.width = binary.cols - roi.x;
+      if (roi.x + roi.width > gray.cols) {
+        roi.width = gray.cols - roi.x;
       }
-      if (roi.y + roi.height > binary.rows) {
-        roi.height = binary.rows - roi.y;
+      if (roi.y + roi.height > gray.rows) {
+        roi.height = gray.rows - roi.y;
       }
 
       if (roi.width <= 0 || roi.height <= 0) {
@@ -859,35 +1479,90 @@ function detectAndParseAnswers(correctedMat, template) {
         continue;
       }
 
-      // Extract ROI
-      const binaryRoi = binary.roi(roi);
-      const filledPixels = cv.countNonZero(binaryRoi);
-      binaryRoi.delete();
+      // Extract ROI from grayscale image
+      const grayRoi = gray.roi(roi);
 
-      const totalPixels = roi.width * roi.height;
-      const fillRatio = filledPixels / totalPixels;
+      // Calculate mean grayscale value (same as Python's cv2.mean()[0])
+      const meanValue = cv.mean(grayRoi)[0];
+      grayRoi.delete();
 
-      // Check if filled
-      const isFilled = fillRatio > fillThreshold;
-
-      if (isFilled) {
-        answers[fieldLabel].push(fieldValue);
-      }
-
-      // Store for visualization
-      visualizationData.push({
+      const bubble = {
         x, y, width, height,
         fieldLabel, fieldValue,
-        isFilled,
-        fillRatio
-      });
+        meanValue
+      };
+
+      bubbleData.push(bubble);
+
+      // Group by fieldLabel for per-strip threshold calculation
+      if (!stripData[fieldLabel]) {
+        stripData[fieldLabel] = [];
+      }
+      stripData[fieldLabel].push(bubble);
+    }
+
+    // 5. Calculate global threshold from all bubble mean values
+    const allMeanValues = bubbleData.map(b => b.meanValue);
+    const globalThreshold = calculateGlobalThreshold(allMeanValues, 4);
+
+    // 5.1 Calculate standard deviation for each question strip (Python-style)
+    const allStdValues = [];
+    for (const fieldLabel in stripData) {
+      const stripMeanValues = stripData[fieldLabel].map(b => b.meanValue);
+      const mean = stripMeanValues.reduce((a, b) => a + b, 0) / stripMeanValues.length;
+      const variance = stripMeanValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / stripMeanValues.length;
+      const std = Math.sqrt(variance);
+      allStdValues.push(std);
+    }
+
+    // 5.2 Calculate global standard deviation threshold
+    const globalStdThreshold = calculateGlobalThreshold(allStdValues, 1);
+
+    // 6. Detect marked bubbles using per-strip local threshold
+    const visualizationData = [];
+    let questionNum = 0;
+    let stripIndex = 0;
+
+    for (const fieldLabel in stripData) {
+      const stripBubbles = stripData[fieldLabel];
+      const stripMeanValues = stripBubbles.map(b => b.meanValue);
+
+      // Calculate standard deviation for this strip
+      const mean = stripMeanValues.reduce((a, b) => a + b, 0) / stripMeanValues.length;
+      const variance = stripMeanValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / stripMeanValues.length;
+      const stripStd = Math.sqrt(variance);
+
+      // Check if this strip has no outliers (Python-style)
+      const noOutliers = stripStd < globalStdThreshold;
+
+      // Calculate local threshold for this question strip
+      const localThreshold = calculateLocalThreshold(stripMeanValues, globalThreshold, noOutliers);
+
+      questionNum++;
+      stripIndex++;
+
+      // Detect marked bubbles: threshold > meanValue (lower value = darker = filled)
+      for (const bubble of stripBubbles) {
+        const isFilled = localThreshold > bubble.meanValue;
+
+        if (isFilled) {
+          answers[bubble.fieldLabel].push(bubble.fieldValue);
+        }
+
+        // Store for visualization
+        visualizationData.push({
+          ...bubble,
+          isFilled,
+          threshold: localThreshold
+        });
+      }
     }
 
     // 建立視覺化結果 - 只標記填塗的格子，不顯示對錯
     const visualization = correctedMat.clone();
 
     for (const data of visualizationData) {
-      const { x, y, width, height, fieldLabel, fieldValue, isFilled, fillRatio } = data;
+      const { x, y, width, height, fieldLabel, fieldValue, isFilled, meanValue, threshold } = data;
 
       const studentAnswers = answers[fieldLabel] || [];
       const isSelected = studentAnswers.includes(fieldValue);
@@ -900,23 +1575,23 @@ function detectAndParseAnswers(correctedMat, template) {
         color = [200, 200, 200, 255];  // 淺灰色 - 未填塗
       }
 
-      // Draw circle at bubble position
-      cv.circle(
+      // Draw rectangle at bubble position
+      cv.rectangle(
         visualization,
         new cv.Point(x, y),
-        Math.floor(Math.max(width, height) / 2),
+        new cv.Point(x + width, y + height),
         color,
         2
       );
 
-      // 如果已填塗，標記填塗比例
+      // 如果已填塗，標記平均值
       if (isSelected) {
         cv.putText(
           visualization,
-          `${Math.round(fillRatio * 100)}%`,
-          new cv.Point(x + 15, y + 5),
+          `${Math.round(meanValue)}`,
+          new cv.Point(x + 5, y + height - 5),
           cv.FONT_HERSHEY_SIMPLEX,
-          0.3,
+          0.4,
           [0, 255, 0, 255],
           1
         );
@@ -1088,9 +1763,21 @@ async function processOMRBatch(data) {
     const preprocessResults = preprocessImage(src);
     processedMats.push(...Object.values(preprocessResults));
 
-    // 3. 透視校正 - 使用模板的 pageDimensions (如果有)
+    // 3. 透視校正 - 使用模板的 pageDimensions 和 CropOnMarkers 設定
     const templatePageDimensions = currentTemplate ? currentTemplate.pageDimensions : null;
-    const perspectiveResult = correctPerspective(src, templatePageDimensions);
+
+    // Extract CropOnMarkers options from template
+    let markerOptions = {};
+    if (currentTemplate && currentTemplate.preProcessors) {
+      const cropOnMarkersConfig = currentTemplate.preProcessors.find(
+        p => p.name === 'CropOnMarkers'
+      );
+      if (cropOnMarkersConfig && cropOnMarkersConfig.options) {
+        markerOptions = cropOnMarkersConfig.options;
+      }
+    }
+
+    const perspectiveResult = correctPerspectiveWithMarkers(src, templatePageDimensions, markerOptions);
     processedMats.push(perspectiveResult.corrected);
     if (perspectiveResult.visualization) {
       processedMats.push(perspectiveResult.visualization);
@@ -1118,6 +1805,7 @@ async function processOMRBatch(data) {
     const result = {
       answers: omrResult ? omrResult.answers : {},
       markedImage: markedImageData,
+      perspectiveResult: matToImageData(perspectiveResult.visualization),
       // 統計資訊
       totalQuestions: omrResult ? Object.keys(omrResult.answers).length : 0,
       answeredQuestions: omrResult ?
@@ -1153,4 +1841,45 @@ async function processOMRBatch(data) {
   }
 }
 
-console.log('[Worker] Image Worker 已載入');
+
+
+/**
+ * Generates a concentric circle marker image (black-white-black circles) as a grayscale cv.Mat.
+ * This marker is used for automatic alignment and cropping of OMR sheets.
+ * The marker consists of three concentric circles:
+ * - Outer circle (black)
+ * - Middle circle (white, 70% of marker radius by default)
+ * - Inner circle (black, 40% of marker radius by default)
+ *
+ * @param {number} markerSize - Size of the marker in pixels (width and height).
+ * @param {object} options - Configuration object containing marker ratios.
+ * @param {number} [options.marker_middle_circle_ratio=0.7] - Ratio for the middle white circle.
+ * @param {number} [options.marker_inner_circle_ratio=0.4] - Ratio for the inner black circle.
+ * @returns {cv.Mat} - A 1-channel (grayscale) cv.Mat representing the marker.
+ */
+function generateDefaultMarkerImage(markerSize, options = {}) {
+  const middleCircleRatio = options.marker_middle_circle_ratio || 0.7;
+  const innerCircleRatio = options.marker_inner_circle_ratio || 0.4;
+
+  if (markerSize <= 0) {
+    throw new Error('Marker size must be a positive integer.');
+  }
+
+  // Create a white background, 1-channel (grayscale) image
+  const markerImg = new cv.Mat(markerSize, markerSize, cv.CV_8UC1, new cv.Scalar(255));
+  const center = markerSize / 2;
+  const outerRadius = markerSize / 2;
+
+  // Draw outer circle (black)
+  cv.circle(markerImg, new cv.Point(center, center), outerRadius, new cv.Scalar(0), -1);
+
+  // Draw middle circle (white)
+  const middleRadius = Math.floor(outerRadius * middleCircleRatio);
+  cv.circle(markerImg, new cv.Point(center, center), middleRadius, new cv.Scalar(255), -1);
+
+  // Draw inner circle (black)
+  const innerRadius = Math.floor(outerRadius * innerCircleRatio);
+  cv.circle(markerImg, new cv.Point(center, center), innerRadius, new cv.Scalar(0), -1);
+
+  return markerImg;
+}

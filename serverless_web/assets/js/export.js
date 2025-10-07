@@ -228,8 +228,6 @@ class OMRExporter {
             setTimeout(() => {
                 URL.revokeObjectURL(url);
             }, 100);
-
-            console.log(`✅ 檔案已下載: ${fileName}`);
         } catch (error) {
             console.error('❌ 下載檔案失敗:', error);
             throw new Error('檔案下載失敗: ' + error.message);
