@@ -1,0 +1,100 @@
+{
+  "name": "預設 OMR 模板 - 20 題四選一",
+  "version": "1.0.0",
+  "description": "標準答案卡模板，20 題單選題，每題有 A、B、C、D 四個選項",
+
+  "page": {
+    "width": 850,
+    "height": 1202,
+    "description": "校正後的答案卡尺寸（A4 比例）"
+  },
+
+  "bubble": {
+    "shape": "circle",
+    "diameter": 32,
+    "minArea": 400,
+    "maxArea": 2000,
+    "fillThreshold": 0.4,
+    "description": "填充率閾值：黑色像素超過 40% 視為已填塗，面積範圍用於過濾輪廓"
+  },
+
+  "detection": {
+    "fillThreshold": 0.4,
+    "description": "答案檢測閾值：填充率超過 40% 視為已填塗"
+  },
+
+  "layout": {
+    "description": "答案區域佈局設定",
+    "optionsPerQuestion": 4,
+    "regions": [
+      {
+        "id": "questions_1_10",
+        "type": "mcq",
+        "origin": {
+          "x": 100,
+          "y": 300,
+          "description": "區域左上角座標（像素）"
+        },
+        "questions": {
+          "start": 1,
+          "end": 10,
+          "direction": "vertical",
+          "gap": 65,
+          "description": "題號間距（垂直方向）"
+        },
+        "options": {
+          "values": ["A", "B", "C", "D"],
+          "direction": "horizontal",
+          "gap": 80,
+          "description": "選項間距（水平方向）"
+        }
+      },
+      {
+        "id": "questions_11_20",
+        "type": "mcq",
+        "origin": {
+          "x": 500,
+          "y": 300
+        },
+        "questions": {
+          "start": 11,
+          "end": 20,
+          "direction": "vertical",
+          "gap": 65
+        },
+        "options": {
+          "values": ["A", "B", "C", "D"],
+          "direction": "horizontal",
+          "gap": 80
+        }
+      }
+    ]
+  },
+
+  "scoring": {
+    "totalQuestions": 20,
+    "pointsPerQuestion": 5,
+    "totalPoints": 100,
+    "passingScore": 60
+  },
+
+  "answerKey": {
+    "1": "A", "2": "B", "3": "C", "4": "D", "5": "A",
+    "6": "B", "7": "C", "8": "D", "9": "A", "10": "B",
+    "11": "C", "12": "D", "13": "A", "14": "B", "15": "C",
+    "16": "D", "17": "A", "18": "B", "19": "C", "20": "D"
+  },
+
+  "answers": {
+    "1": ["A"], "2": ["B"], "3": ["C"], "4": ["D"], "5": ["A"],
+    "6": ["B"], "7": ["C"], "8": ["D"], "9": ["A"], "10": ["B"],
+    "11": ["C"], "12": ["D"], "13": ["A"], "14": ["B"], "15": ["C"],
+    "16": ["D"], "17": ["A"], "18": ["B"], "19": ["C"], "20": ["D"]
+  },
+
+  "metadata": {
+    "created": "2025-10-05",
+    "author": "OMRChecker Serverless",
+    "notes": "此為範例模板，實際使用時請根據答案卡樣式調整座標"
+  }
+}

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMR Checker - 線上答案卡辨識</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <link rel="stylesheet" href="./assets/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📝 OMR Checker</h1>
+            <p class="subtitle">完全在瀏覽器端運行的答案卡辨識系統</p>
+        </header>
+
+        <main>
+            <!-- OpenCV.js 載入狀態 -->
+            <section id="opencv-status"
+                     class="status-card"
+                     role="status"
+                     aria-live="polite">
+                <div class="status-icon" id="status-icon">⏳</div>
+                <div class="status-content">
+                    <h2 id="status-title">系統初始化中</h2>
+                    <p id="status-text">正在載入 OpenCV.js...</p>
+                    <div class="loading-bar" id="loading-bar">
+                        <div class="loading-progress" id="loading-progress"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 檔案上傳區 -->
+            <section id="upload-section" class="upload-section" style="display: none;">
+                <h2>📤 上傳檔案</h2>
+
+                <div class="upload-guide">
+                    <h3>快速開始：</h3>
+                    <ol>
+                        <li>上傳 OMR 答案卡圖檔（PNG/JPG，可多選）</li>
+                        <li>上傳模板檔案（template.json，必要）</li>
+                        <li>選填：上傳設定檔、評分標準、自訂標記圖檔</li>
+                        <li>點擊「🚀 開始辨識答案卡」</li>
+                    </ol>
+                    <p class="tip">💡 提示：如果標記偵測不準確，可以上傳符合你的答案卡的自訂標記圖檔。</p>
+                </div>
+
+                <!-- 主要檔案上傳 -->
+                <div class="upload-grid">
+                    <!-- OMR 圖檔上傳 -->
+                    <div class="upload-box">
+                        <label for="image-files-input" class="upload-label">
+                            <span class="upload-icon">🖼️</span>
+                            <span class="upload-title">OMR 答案卡圖檔</span>
+                            <span class="upload-subtitle">可多選 JPG、PNG 格式</span>
+                        </label>
+                        <input
+                            type="file"
+                            id="image-files-input"
+                            accept="image/jpeg,image/png,image/jpg"
+                            multiple
+                            style="display: none;"
+                        >
+                        <div id="image-files-list" class="files-list"></div>
+                    </div>
+
+                    <!-- Template JSON 上傳 -->
+                    <div class="upload-box">
+                        <label for="template-file-input" class="upload-label">
+                            <span class="upload-icon">📋</span>
+                            <span class="upload-title">模板檔案（必要）</span>
+                            <span class="upload-subtitle">template.json</span>
+                        </label>
+                        <input
+                            type="file"
+                            id="template-file-input"
+                            accept=".json,application/json"
+                            style="display: none;"
+                        >
+                        <div id="template-file-name" class="file-name"></div>
+                    </div>
+                </div>
+
+                <!-- 選填設定檔案 -->
+                <details class="upload-accordion">
+                    <summary>選填設定檔案</summary>
+                    <div class="upload-grid">
+                        <!-- Config JSON -->
+                        <div class="upload-box">
+                            <label for="config-file-input" class="upload-label">
+                                <span class="upload-icon">⚙️</span>
+                                <span class="upload-title">設定檔</span>
+                                <span class="upload-subtitle">config.json</span>
+                            </label>
+                            <input
+                                type="file"
+                                id="config-file-input"
+                                accept=".json,application/json"
+                                style="display: none;"
+                            >
+                            <div id="config-file-name" class="file-name"></div>
+                        </div>
+
+                        <!-- Evaluation JSON -->
+                        <div class="upload-box">
+                            <label for="evaluation-file-input" class="upload-label">
+                                <span class="upload-icon">📊</span>
+                                <span class="upload-title">評分標準檔</span>
+                                <span class="upload-subtitle">evaluation.json</span>
+                            </label>
+                            <input
+                                type="file"
+                                id="evaluation-file-input"
+                                accept=".json,application/json"
+                                style="display: none;"
+                            >
+                            <div id="evaluation-file-name" class="file-name"></div>
+                        </div>
+
+                        <!-- Marker Image -->
+                        <div class="upload-box">
+                            <label for="marker-file-input" class="upload-label">
+                                <span class="upload-icon">🎯</span>
+                                <span class="upload-title">自訂標記圖檔</span>
+                                <span class="upload-subtitle">選填 - 如果自動產生的標記不符合</span>
+                            </label>
+                            <input
+                                type="file"
+                                id="marker-file-input"
+                                accept="image/jpeg,image/png,image/jpg"
+                                style="display: none;"
+                            >
+                            <div id="marker-file-name" class="file-name"></div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- 處理選項 -->
+                <details class="upload-accordion">
+                    <summary>處理選項</summary>
+                    <div class="processing-options">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="auto-align-check">
+                            <span>啟用自動對齊（實驗功能：自動對齊輕微偏移的掃描圖）</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="layout-mode-check">
+                            <span>版面配置模式（視覺化模板配置，而非進行辨識）</span>
+                        </label>
+                    </div>
+                </details>
+
+                <!-- 開始處理按鈕 -->
+                <div class="action-buttons">
+                    <button id="process-batch-btn" class="btn btn-primary btn-lg" disabled>
+                        🚀 開始辨識答案卡
+                    </button>
+                </div>
+            </section>
+
+            <!-- 影像預覽與處理結果 -->
+            <section id="preview-section" class="preview-section" style="display: none;">
+                <h2>🖼️ 影像處理</h2>
+
+                <div class="preview-grid">
+                    <!-- 原始影像 -->
+                    <div class="preview-item">
+                        <h3>原始影像</h3>
+                        <canvas id="canvas-original"></canvas>
+                    </div>
+
+                    <!-- 灰階 -->
+                    <div class="preview-item">
+                        <h3>灰階轉換</h3>
+                        <canvas id="canvas-grayscale"></canvas>
+                    </div>
+
+                    <!-- 降噪 -->
+                    <div class="preview-item">
+                        <h3>降噪處理</h3>
+                        <canvas id="canvas-blurred"></canvas>
+                    </div>
+
+                    <!-- 二值化 -->
+                    <div class="preview-item">
+                        <h3>二值化</h3>
+                        <canvas id="canvas-binary"></canvas>
+                    </div>
+
+                    <!-- 角點檢測視覺化 -->
+                    <div class="preview-item">
+                        <h3>角點檢測</h3>
+                        <canvas id="canvas-corners"></canvas>
+                    </div>
+
+                    <!-- 透視校正後 -->
+                    <div class="preview-item">
+                        <h3>透視校正</h3>
+                        <canvas id="canvas-corrected"></canvas>
+                    </div>
+
+                    <!-- OMR 答案檢測結果 -->
+                    <div class="preview-item">
+                        <h3>🎯 答案檢測結果</h3>
+                        <canvas id="canvas-omr-result"></canvas>
+                        <p class="hint">綠色：答對 | 紅色：答錯 | 灰色：未填塗</p>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button id="save-result-btn" class="btn btn-primary">
+                        💾 儲存結果
+                    </button>
+                    <button id="export-csv-btn" class="btn btn-success">
+                        📊 匯出 CSV
+                    </button>
+                    <button id="export-json-btn" class="btn btn-success">
+                        📄 匯出 JSON
+                    </button>
+                    <button id="process-btn" class="btn btn-secondary">
+                        🔄 重新處理
+                    </button>
+                    <button id="upload-new-btn" class="btn btn-secondary">
+                        📤 上傳新圖片
+                    </button>
+                </div>
+            </section>
+
+            <!-- 批次處理結果區 -->
+            <section id="batch-results-section" class="batch-results-section" style="display: none;">
+                <h2>📊 辨識結果</h2>
+
+                <!-- 狀態訊息 -->
+                <div class="status-message-box">
+                    <h3>狀態訊息</h3>
+                    <div id="status-message" class="status-message"></div>
+                </div>
+
+                <!-- 批次處理進度 -->
+                <div id="batch-progress-container" class="batch-progress-container" style="display: none;">
+                    <h3>處理進度</h3>
+                    <div class="progress-bar-container">
+                        <div id="batch-progress-bar" class="progress-bar"></div>
+                        <span id="batch-progress-text" class="progress-text">0 / 0</span>
+                    </div>
+                    <div id="batch-files-status" class="batch-files-status"></div>
+                </div>
+
+                <!-- 標記後的圖片Gallery -->
+                <div id="marked-images-gallery-container" class="gallery-container" style="display: none;">
+                    <h3>標記後的答案卡圖檔</h3>
+                    <div id="marked-images-gallery" class="images-gallery"></div>
+                </div>
+
+                <!-- 處理記錄 -->
+                <details id="processing-logs-container" class="logs-accordion" style="display: none;">
+                    <summary>處理記錄</summary>
+                    <div id="processing-logs" class="processing-logs"></div>
+                </details>
+
+                <!-- 結果檔案下載 -->
+                <div id="results-download-container" class="results-download" style="display: none;">
+                    <h3>下載結果</h3>
+                    <div class="download-buttons">
+                        <button id="download-csv-btn" class="btn btn-success">
+                            📊 下載 CSV 檔案
+                        </button>
+                        <button id="download-json-btn" class="btn btn-success">
+                            📄 下載 JSON 檔案
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 歷史記錄區 -->
+            <section id="history-section" class="history-section" style="display: none;">
+                <div class="history-header">
+                    <h2>📋 處理歷史</h2>
+                    <div class="history-actions">
+                        <button id="export-history-csv-btn" class="btn btn-small btn-success">📊 匯出 CSV</button>
+                        <button id="export-history-json-btn" class="btn btn-small btn-success">📄 匯出 JSON</button>
+                        <button id="close-history-btn" class="btn btn-small btn-secondary">✕ 關閉</button>
+                    </div>
+                </div>
+                <div id="history-list" class="history-list"></div>
+            </section>
+        </main>
+
+        <footer>
+            <p>
+                <button id="view-history-btn" class="btn btn-link">📋 查看歷史記錄</button>
+                |
+                基於 <a href="https://github.com/Udayraj123/OMRChecker" target="_blank">OMRChecker</a> 專案 | 使用 OpenCV.js 開發
+            </p>
+        </footer>
+    </div>
+
+    <!-- OpenCV.js 初始化配置 -->
+    <script>
+        var Module = {
+            onRuntimeInitialized() {
+                if (window.opencvLoader) {
+                    window.opencvLoader.onOpenCVReady();
+                }
+            }
+        };
+    </script>
+
+    <!-- 載入腳本 (順序重要) -->
+    <script src="./assets/js/opencv-loader.js"></script>
+    <script async src="./assets/lib/opencv.js"></script>
+    <script src="./assets/js/storage.js"></script>
+    <script src="./assets/js/export.js"></script>
+    <script src="./assets/js/config-parser.js"></script>
+    <script src="./assets/js/batch-processor.js"></script>
+    <script src="./assets/js/image-processor.js"></script>
+    <script src="./assets/js/app.js"></script>
+</body>
+</html>
