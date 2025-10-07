@@ -18,3 +18,8 @@ outputs/*
 venv/
 OMRChecker.wiki/
 serverless_web/assets/lib/opencv.js
+
+# Test/temporary files
+omr_marker.jpg
+result.csv
+serverless_web/omr_marker.jpg
